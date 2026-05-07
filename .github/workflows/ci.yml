@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build & Test
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode and available simulators
+        run: |
+          xcodebuild -version
+          xcrun simctl list devices available | grep -E "iPhone " | head -20
+
+      - name: Cache DerivedData
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: deriveddata-${{ runner.os }}-${{ hashFiles('project.yml') }}
+          restore-keys: |
+            deriveddata-${{ runner.os }}-
+
+      - name: Install XcodeGen and SwiftLint
+        run: brew install xcodegen swiftlint
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Lint
+        run: make lint
+
+      # macos-15 runners list multiple "iPhone 16" devices across runtimes.
+      # Match by name picks one ambiguously, which has been observed to fail
+      # the UI test with "Failed to get background assertion for target app
+      # with pid 0". Pin to the latest available runtime by UDID and pre-boot
+      # so xcodebuild attaches to a fully booted simulator.
+      - name: Boot iPhone 16 simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list -j devices available | jq -r '
+            [.devices | to_entries[] | .key as $rt | .value[]
+             | select(.name == "iPhone 16" and .isAvailable)
+             | {udid: .udid, runtime: $rt}]
+            | sort_by(.runtime) | reverse | .[0].udid // empty
+          ')
+          if [ -z "$UDID" ]; then
+            echo "No available iPhone 16 simulator found" >&2
+            exit 1
+          fi
+          echo "Booting iPhone 16 ($UDID)"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Build & Test
+        run: make test DESTINATION="platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}"
+
+      - name: Upload xcresult on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult-${{ github.run_id }}
+          path: build/Chorez.xcresult
+          retention-days: 7
