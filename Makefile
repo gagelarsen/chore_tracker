@@ -1,0 +1,32 @@
+SCHEME := Chorez
+DESTINATION := platform=iOS Simulator,name=iPhone 15
+RESULT_BUNDLE := build/Chorez.xcresult
+
+.PHONY: project build test clean help
+
+help:
+	@echo "Targets:"
+	@echo "  make project   Generate Chorez.xcodeproj from project.yml"
+	@echo "  make build     Build the app (regenerates project first)"
+	@echo "  make test      Run unit + UI tests (regenerates project first)"
+	@echo "  make clean     Remove build artifacts and the generated project"
+
+project:
+	xcodegen generate
+
+build: project
+	xcodebuild build \
+		-scheme $(SCHEME) \
+		-destination "$(DESTINATION)"
+
+test: project
+	mkdir -p build
+	rm -rf $(RESULT_BUNDLE)
+	xcodebuild test \
+		-scheme $(SCHEME) \
+		-destination "$(DESTINATION)" \
+		-resultBundlePath $(RESULT_BUNDLE)
+
+clean:
+	rm -rf build/
+	rm -rf Chorez.xcodeproj
