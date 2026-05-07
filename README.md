@@ -43,7 +43,7 @@ CLAUDE.md          Repo policies (testing, docs, branching, deps)
 | Target | What it does |
 |---|---|
 | `make project` | Run `xcodegen generate` to produce `Chorez.xcodeproj`. |
-| `make build`   | Build the Chorez scheme for an iOS 17 simulator. |
+| `make build`   | Build the Chorez scheme for an iOS simulator (iPhone 17 by default — override with `DESTINATION=...`). |
 | `make test`    | Run unit and UI tests. The same command CI runs. |
 | `make lint`    | Run SwiftLint over the sources (strict mode — warnings fail). |
 | `make clean`   | Remove build artifacts and the generated project. |

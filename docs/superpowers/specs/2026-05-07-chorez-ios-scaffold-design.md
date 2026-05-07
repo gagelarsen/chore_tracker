@@ -23,8 +23,8 @@ chore-tracking features are in scope.
 - App icon design, branding, or marketing copy.
 - TestFlight / App Store distribution (no Fastlane, no provisioning automation).
 - Networking, persistence, or analytics layers.
-- Linting/formatting tooling beyond what Xcode provides by default. (We can
-  add SwiftLint later if patterns drift.)
+- Auto-formatting tooling (e.g. `swift-format`). SwiftLint *is* in scope —
+  see the CI section — but we are not adopting a formatter yet.
 
 ## Architecture
 
@@ -96,17 +96,23 @@ proves real test execution rather than zero-test success.
 
 GitHub Actions workflow at `.github/workflows/ci.yml`:
 
-- **Runner:** `macos-14` (ships with Xcode 15.4 and iOS 17 simulators).
+- **Runner:** `macos-15` (ships with Xcode 16.x and iPhone 16/17 simulators).
 - **Triggers:** `push` to any branch, `pull_request` targeting `main`.
+  Concurrent runs on the same ref are cancelled to avoid wasted minutes.
 - **Steps:**
   1. `actions/checkout@v4`
-  2. Select Xcode: `sudo xcode-select -s /Applications/Xcode_15.4.app`
-     (with a fallback `xcodebuild -version` debug print).
-  3. Install XcodeGen: `brew install xcodegen`
-  4. Generate project: `xcodegen generate`
-  5. Build & test: `xcodebuild test -scheme Chorez -destination "platform=iOS Simulator,name=iPhone 15" -resultBundlePath build/Chorez.xcresult | xcpretty`
-  6. On failure, upload `build/Chorez.xcresult` as an artifact.
+  2. Print `xcodebuild -version` and the available iPhone simulators (debug
+     output, helps when the runner image rolls).
+  3. Restore the DerivedData cache (keyed on `project.yml` hash).
+  4. Install tooling: `brew install xcodegen swiftlint`.
+  5. Generate the project: `xcodegen generate`.
+  6. Lint: `make lint` (which runs `swiftlint --strict`).
+  7. Build & test: `make test DESTINATION="platform=iOS Simulator,name=iPhone 16"`.
+  8. On failure, upload `build/Chorez.xcresult` as an artifact.
 - **Caching:** DerivedData cached on `project.yml` hash to speed reruns.
+- **Xcode selection:** we rely on the runner image's default Xcode rather
+  than pinning via `xcode-select`. If a runner bump breaks us, we'll pin
+  then.
 
 ## Local Developer Workflow
 
@@ -116,6 +122,7 @@ A `Makefile` exposes the common verbs:
 make project   # xcodegen generate
 make build     # xcodebuild build
 make test      # xcodebuild test (the same command CI runs)
+make lint      # swiftlint --strict
 make clean     # rm -rf build/ and the generated .xcodeproj
 ```
 
@@ -155,12 +162,12 @@ a reviewer or a CI step.
 
 ## Risks & Open Questions
 
-- **Xcode version drift on `macos-14` runners.** GitHub may bump the default
-  Xcode. Pinning explicitly via `xcode-select` mitigates this; we'll monitor
-  CI for surprises.
-- **Swift Testing maturity.** Stable in Xcode 16+, supported in Xcode 15.4.
-  If we hit edge cases on the runner's Xcode, we fall back to XCTest for
-  unit tests.
+- **Xcode version drift on `macos-15` runners.** GitHub may bump the default
+  Xcode and the available simulators. We rely on the runner default rather
+  than pinning, so we'll watch CI and pin via `xcode-select` if a bump
+  breaks the build.
+- **Swift Testing maturity.** Stable in Xcode 16+. If we hit edge cases on
+  the runner's Xcode, we fall back to XCTest for unit tests.
 - **No app icon yet.** Xcode 15+ tolerates an empty `AppIcon` set in
   development. Before any TestFlight build we must add real icons.
 

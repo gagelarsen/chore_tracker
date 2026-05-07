@@ -35,6 +35,6 @@ lint:
 	swiftlint --strict
 
 clean:
-	rm -rf build/ DerivedData/ .build/ .swiftpm/
+	rm -rf build/ .build/ .swiftpm/
 	rm -rf Chorez.xcodeproj Chorez.xcworkspace
 	rm -f Package.resolved
