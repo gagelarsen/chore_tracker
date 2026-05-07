@@ -16,11 +16,6 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 30
 
-    env:
-      # macos-15 ships iPhone 16 simulators by default; override here if the
-      # runner image changes.
-      DESTINATION: platform=iOS Simulator,name=iPhone 16
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,8 +42,32 @@ jobs:
       - name: Lint
         run: make lint
 
+      # macos-15 runners list multiple "iPhone 16" devices across runtimes.
+      # Match by name picks one ambiguously, which has been observed to fail
+      # the UI test with "Failed to get background assertion for target app
+      # with pid 0". Pin to the latest available runtime by UDID and pre-boot
+      # so xcodebuild attaches to a fully booted simulator.
+      - name: Boot iPhone 16 simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list -j devices available | jq -r '
+            [.devices | to_entries[] | .key as $rt | .value[]
+             | select(.name == "iPhone 16" and .isAvailable)
+             | {udid: .udid, runtime: $rt}]
+            | sort_by(.runtime) | reverse | .[0].udid // empty
+          ')
+          if [ -z "$UDID" ]; then
+            echo "No available iPhone 16 simulator found" >&2
+            exit 1
+          fi
+          echo "Booting iPhone 16 ($UDID)"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
       - name: Build & Test
-        run: make test DESTINATION="$DESTINATION"
+        run: make test DESTINATION="platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}"
 
       - name: Upload xcresult on failure
         if: failure()
