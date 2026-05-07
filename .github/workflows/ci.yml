@@ -13,22 +13,23 @@ concurrency:
 jobs:
   test:
     name: Build & Test
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
 
     env:
       SCHEME: Chorez
-      DESTINATION: platform=iOS Simulator,name=iPhone 15
+      # macos-15 ships iPhone 16 simulators by default; override here if the
+      # runner image changes.
+      DESTINATION: platform=iOS Simulator,name=iPhone 16
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 15.4
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app
-
-      - name: Show Xcode version
-        run: xcodebuild -version
+      - name: Show Xcode and available simulators
+        run: |
+          xcodebuild -version
+          xcrun simctl list devices available | grep -E "iPhone " | head -20
 
       - name: Cache DerivedData
         uses: actions/cache@v4

@@ -1,5 +1,6 @@
 SCHEME := Chorez
-DESTINATION := platform=iOS Simulator,name=iPhone 15
+# Override on the command line: `make test DESTINATION="platform=iOS Simulator,name=iPhone 16"`
+DESTINATION ?= platform=iOS Simulator,name=iPhone 17
 RESULT_BUNDLE := build/Chorez.xcresult
 
 .PHONY: project build test clean help
