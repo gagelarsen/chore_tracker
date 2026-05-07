@@ -5,9 +5,11 @@ scaffold — the chore-tracking features are still to come.
 
 ## Prerequisites
 
-- macOS with **Xcode 15.4** (or newer Xcode that ships an iOS 17 simulator)
+- macOS with **Xcode 16** or newer — required for the iPhone 16/17
+  simulators that `make` and CI default to.
 - **XcodeGen** (`brew install xcodegen`) — generates the Xcode project from
-  `project.yml`
+  `project.yml`.
+- **SwiftLint** (`brew install swiftlint`) — required by `make lint` and CI.
 
 ## Getting started
 
@@ -29,7 +31,8 @@ Chorez/            App sources (SwiftUI, iOS 17+)
 ChorezTests/       Unit tests (Swift Testing)
 ChorezUITests/     UI tests (XCUITest)
 project.yml        XcodeGen project spec — edit this, never the .xcodeproj
-Makefile           Common dev verbs (project / build / test / clean)
+Makefile           Common dev verbs (project / build / test / lint / clean)
+.swiftlint.yml     SwiftLint configuration
 .github/workflows  GitHub Actions CI
 docs/              Design specs and project documentation
 CLAUDE.md          Repo policies (testing, docs, branching, deps)
@@ -42,12 +45,14 @@ CLAUDE.md          Repo policies (testing, docs, branching, deps)
 | `make project` | Run `xcodegen generate` to produce `Chorez.xcodeproj`. |
 | `make build`   | Build the Chorez scheme for an iOS 17 simulator. |
 | `make test`    | Run unit and UI tests. The same command CI runs. |
+| `make lint`    | Run SwiftLint over the sources (strict mode — warnings fail). |
 | `make clean`   | Remove build artifacts and the generated project. |
 
 ## CI
 
-GitHub Actions runs `make test` against an `iPhone 15` simulator on every
-push and on PRs into `main`. See `.github/workflows/ci.yml`.
+GitHub Actions runs `make lint` and `make test` against an `iPhone 16`
+simulator (on a `macos-15` runner) on every push and on PRs into `main`.
+See `.github/workflows/ci.yml`.
 
 ## Conventions
 

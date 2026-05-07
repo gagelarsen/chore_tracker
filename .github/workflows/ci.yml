@@ -39,21 +39,17 @@ jobs:
           restore-keys: |
             deriveddata-${{ runner.os }}-
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      - name: Install XcodeGen and SwiftLint
+        run: brew install xcodegen swiftlint
 
       - name: Generate project
         run: xcodegen generate
 
+      - name: Lint
+        run: make lint
+
       - name: Build & Test
-        run: |
-          set -o pipefail
-          mkdir -p build
-          xcodebuild test \
-            -scheme "$SCHEME" \
-            -destination "$DESTINATION" \
-            -resultBundlePath build/Chorez.xcresult \
-            CODE_SIGNING_ALLOWED=NO
+        run: make test DESTINATION="$DESTINATION"
 
       - name: Upload xcresult on failure
         if: failure()

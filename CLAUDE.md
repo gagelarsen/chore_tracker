@@ -68,6 +68,22 @@ unreachable from a test (rare — say so explicitly in the PR).
 - Pin versions exactly. Avoid `from:` ranges that auto-resolve to new
   major versions.
 
+## 8. Linting
+
+- **SwiftLint is the canonical linter.** CI runs `make lint` (which invokes
+  `swiftlint --strict`) and fails on any warning or error.
+- New code must produce **zero** SwiftLint findings. "Warnings are fine"
+  is not fine — strict mode treats warnings as failures.
+- If a rule is wrong for this codebase, change `.swiftlint.yml` (with the
+  reasoning in the PR description) rather than papering over violations
+  with inline `// swiftlint:disable`.
+- `// swiftlint:disable` is acceptable when the rule is right but a
+  specific call site genuinely needs the exception. Always pair it with a
+  comment explaining why and use the narrowest scope possible
+  (`// swiftlint:disable:next <rule>` over a file-level disable).
+- Run `make lint` before pushing. Same bar as `make test`: "should be
+  clean" is not clean.
+
 ---
 
 ## Quick reference
@@ -77,6 +93,7 @@ unreachable from a test (rare — say so explicitly in the PR).
 | Generate Xcode project | `make project` |
 | Build the app | `make build` |
 | Run all tests | `make test` |
+| Run the linter | `make lint` |
 | Wipe build artifacts | `make clean` |
 
 ## When working with sub-agents

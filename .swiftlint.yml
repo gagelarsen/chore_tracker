@@ -1,0 +1,23 @@
+excluded:
+  - build
+  - DerivedData
+  - .build
+  - .swiftpm
+  - Chorez.xcodeproj
+
+opt_in_rules:
+  - empty_count
+  - empty_string
+  - explicit_init
+  - first_where
+  - last_where
+  - redundant_nil_coalescing
+  - sorted_first_last
+  - toggle_bool
+  - unused_import
+
+line_length:
+  warning: 120
+  error: 160
+  ignores_comments: true
+  ignores_urls: true
