@@ -17,7 +17,6 @@ jobs:
     timeout-minutes: 30
 
     env:
-      SCHEME: Chorez
       # macos-15 ships iPhone 16 simulators by default; override here if the
       # runner image changes.
       DESTINATION: platform=iOS Simulator,name=iPhone 16
