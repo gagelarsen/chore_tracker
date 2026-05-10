@@ -8,15 +8,12 @@ import SwiftData
 
 @MainActor
 enum RepoFixture {
-    /// All seven Phase 1 entities registered against a fresh in-memory
-    /// store. Starting point for every repository test.
+    /// All Phase 1 entities registered against a fresh in-memory store.
+    /// Uses `ChorezSchema.allModels` (the same list `ChorezApp` uses for
+    /// the live container) so a future `@Model` added in production
+    /// can't silently miss the test suite.
     static func makeContext() throws -> ModelContext {
-        let schema = Schema([
-            Household.self, Kid.self,
-            ChoreTemplate.self, ChoreInstance.self,
-            Reward.self, RewardRedemption.self,
-            Event.self
-        ])
+        let schema = Schema(ChorezSchema.allModels)
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [config])
         return ModelContext(container)

@@ -1,6 +1,15 @@
 import Foundation
 import SwiftData
 
+/// Programmer errors raised by `HouseholdRepository`. Distinct from the
+/// engine's business-logic errors (those come back inside `Result`).
+public enum HouseholdRepositoryError: Error, Equatable, Sendable {
+    /// `applyEngine` was called before `createIfMissing` had bootstrapped
+    /// the household row. Callers must initialize the household before
+    /// running rules.
+    case householdNotInitialized
+}
+
 /// CRUD wrapper over `Household` rows, plus the single `applyEngine`
 /// bottleneck that routes every rules-engine call from the UI all the
 /// way down to SwiftData.
@@ -78,17 +87,18 @@ public final class HouseholdRepository {
     /// Storage errors are thrown; rule failures come back inside the
     /// `Result`. Splitting them this way keeps call sites focused on the
     /// business-level outcome — a `RedemptionError.insufficientBalance`
-    /// is a normal UI state, while a SwiftData write failure is an
-    /// exceptional crash-y situation.
+    /// is a normal UI state, while a SwiftData write failure or
+    /// uninitialised-store call is exceptional.
+    ///
+    /// Throws `HouseholdRepositoryError.householdNotInitialized` if
+    /// called before `createIfMissing`. That is a programmer error
+    /// (running rules on an empty store), and surfacing it loudly is
+    /// safer than the previous silent `.success(())`.
     public func applyEngine<E: Error>(
         _ transform: (HouseholdState, Date) -> Result<HouseholdState, E>
     ) throws -> Result<Void, E> {
         guard let oldState = try snapshot() else {
-            // No household yet — the engine has no state to operate on.
-            // Treat as a no-op success rather than throwing; the caller
-            // either hasn't bootstrapped yet or is exercising an empty
-            // store.
-            return .success(())
+            throw HouseholdRepositoryError.householdNotInitialized
         }
         let now = dateProvider()
         switch transform(oldState, now) {
@@ -133,6 +143,12 @@ public final class HouseholdRepository {
         try context.save()
     }
 
+    /// Intentionally narrow: only `currentDailyBalance` is engine-owned.
+    /// Structural Kid fields (`name`, `displayOrder`) are mutated through
+    /// `KidRepository` directly and would be silently dropped if an
+    /// engine function ever changed them. That is by design for Phase 1;
+    /// if a future engine function needs to mutate other Kid fields,
+    /// extend this writer at the same time as the engine change.
     private func writeBackKids(old: [KidSnapshot], new: [KidSnapshot]) throws {
         let oldByID = Dictionary(uniqueKeysWithValues: old.map { ($0.id, $0) })
         let models = try context.fetch(FetchDescriptor<Kid>())
@@ -145,6 +161,12 @@ public final class HouseholdRepository {
         }
     }
 
+    /// Engine-driven ChoreInstance writes cover two operations: marking
+    /// pending → done (via `applyChoreCompletion`) and bulk deletion
+    /// (via `closeOutDay`). New ChoreInstance rows are produced by
+    /// `ChoreRepository.autoFillTodayIfNeeded` / `createAdHocInstance`
+    /// directly, not by the engine — so an engine-emitted snapshot with
+    /// a fresh ID is silently ignored here, intentionally.
     private func writeBackInstances(old: [ChoreInstanceSnapshot],
                                     new: [ChoreInstanceSnapshot]) throws {
         let oldByID = Dictionary(uniqueKeysWithValues: old.map { ($0.id, $0) })

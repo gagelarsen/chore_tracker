@@ -52,12 +52,14 @@ public final class KidRepository {
 
     /// Hard delete with cascade to children the kid owns directly.
     ///
-    /// Deletes the `Kid` itself, every `ChoreTemplate` assigned to them
-    /// (templates are personalized in v1), and every pending or future
-    /// `ChoreInstance` for them. Completed instances stay so the audit
-    /// query against `Event` records is still self-consistent; the
-    /// append-only `Event` and `RewardRedemption` rows are never
-    /// deleted by a kid removal.
+    /// Deletes the `Kid`, every `ChoreTemplate` assigned to them
+    /// (templates are personalized in v1), every pending `ChoreInstance`
+    /// regardless of date, and every future `ChoreInstance` (status
+    /// irrelevant). **Completed instances on today or earlier stay** so
+    /// the audit query against `Event` records is still
+    /// self-consistent — every `choreCompleted` event still has its
+    /// referenced `ChoreInstance` row. Append-only `Event` and
+    /// `RewardRedemption` rows are never touched.
     public func delete(_ kid: Kid) throws {
         let kidID = kid.id
         let now = Date.now
@@ -65,10 +67,15 @@ public final class KidRepository {
 
         try context.delete(model: ChoreTemplate.self,
                            where: #Predicate { $0.assignedKidID == kidID })
+        // `instance.date > today` (strictly greater): future instances
+        // are wiped regardless of status, but completed-today instances
+        // stay so the audit log isn't orphaned. Pending instances
+        // (any date, past or today) are also wiped — nothing left for
+        // the kid to do.
         try context.delete(model: ChoreInstance.self,
                            where: #Predicate { instance in
                                instance.assignedKidID == kidID
-                               && (instance.statusRaw == "pending" || instance.date >= today)
+                               && (instance.statusRaw == "pending" || instance.date > today)
                            })
         context.delete(kid)
         try context.save()

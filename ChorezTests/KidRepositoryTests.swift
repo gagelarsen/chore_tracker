@@ -83,4 +83,29 @@ struct KidRepositoryTests {
         #expect(templatesAfter.isEmpty)
         #expect(instancesAfter.isEmpty)
     }
+
+    @Test("delete keeps today's completed instances so the audit log isn't orphaned")
+    func deletePreservesCompletedToday() throws {
+        let context = try RepoFixture.makeContext()
+        let household = try RepoFixture.seed(context: context)
+        let kidRepo = KidRepository(context: context)
+        let choreRepo = ChoreRepository(context: context)
+
+        let kid = try kidRepo.create(householdID: household.id, name: "Anna")
+        let today = Calendar.current.startOfDay(for: Date.now)
+        // Insert a completed-today instance directly (bypasses the
+        // pending → done flow but exercises the predicate boundary).
+        let completed = ChoreInstance(templateID: nil, householdID: household.id,
+                                      name: "Done", points: 5, assignedKidID: kid.id,
+                                      date: today, status: .done, completedAt: Date.now)
+        context.insert(completed)
+        try context.save()
+
+        try kidRepo.delete(kid)
+
+        let remaining = try choreRepo.instances(forDate: today)
+        #expect(remaining.count == 1)
+        #expect(remaining.first?.id == completed.id)
+        #expect(remaining.first?.status == .done)
+    }
 }

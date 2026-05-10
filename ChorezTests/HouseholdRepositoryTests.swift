@@ -38,14 +38,22 @@ struct HouseholdRepositoryTests {
         #expect(try repo(context).snapshot() == nil)
     }
 
-    @Test("applyEngine on empty store is a no-op success")
+    @Test("applyEngine throws when called before the household is initialised")
     func applyEngineEmptyStore() throws {
         let context = try RepoFixture.makeContext()
-        // `CloseOutError` is the uninhabited empty-enum case in the engine
-        // surface and pins the generic `E` so the identity closure type-checks.
-        let result: Result<Void, CloseOutError> = try repo(context)
-            .applyEngine { state, _ in .success(state) }
-        if case .failure = result { Issue.record("Expected success on empty store") }
+        // Calling the engine before bootstrapping the household is a
+        // programmer error; the repository should surface it rather
+        // than silently succeed.
+        do {
+            // `CloseOutError` is the uninhabited empty-enum case in the
+            // engine surface and pins the generic `E` so the identity
+            // closure type-checks.
+            let _: Result<Void, CloseOutError> = try repo(context)
+                .applyEngine { state, _ in .success(state) }
+            Issue.record("Expected HouseholdRepositoryError.householdNotInitialized to be thrown")
+        } catch HouseholdRepositoryError.householdNotInitialized {
+            // expected
+        }
     }
 
     @Test("applyAward updates balance and inserts event row")
