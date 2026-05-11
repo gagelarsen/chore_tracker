@@ -10,11 +10,12 @@ import SwiftData
 /// is deferred to Phase 5 polish.
 @Model
 public final class Kid {
-    public var id: UUID
-    public var householdID: UUID
-    public var name: String
-    public var displayOrder: Int
-    public var currentDailyBalance: Int
+    // Property-level defaults — see Household.swift for the rationale.
+    public var id: UUID = UUID()
+    public var householdID: UUID = UUID()
+    public var name: String = ""
+    public var displayOrder: Int = 0
+    public var currentDailyBalance: Int = 0
 
     public init(id: UUID = UUID(),
                 householdID: UUID,

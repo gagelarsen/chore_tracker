@@ -11,13 +11,14 @@ import SwiftData
 /// CloudKit-friendly primitives.
 @Model
 public final class ChoreTemplate {
-    public var id: UUID
-    public var householdID: UUID
-    public var name: String
-    public var points: Int
-    public var assignedKidID: UUID
-    public var recurrenceRaw: String
-    public var active: Bool
+    // Property-level defaults — see Household.swift for the rationale.
+    public var id: UUID = UUID()
+    public var householdID: UUID = UUID()
+    public var name: String = ""
+    public var points: Int = 0
+    public var assignedKidID: UUID = UUID()
+    public var recurrenceRaw: String = Recurrence.daily.rawValue
+    public var active: Bool = true
 
     public var recurrence: Recurrence {
         get { Recurrence(rawValue: recurrenceRaw) ?? .daily }

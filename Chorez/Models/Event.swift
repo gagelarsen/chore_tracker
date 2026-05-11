@@ -11,11 +11,12 @@ import SwiftData
 /// without touching the payload.
 @Model
 public final class Event {
-    public var id: UUID
+    // Property-level defaults — see Household.swift for the rationale.
+    public var id: UUID = UUID()
     public var kidID: UUID?
-    public var typeRaw: String
-    public var payloadData: Data
-    public var occurredAt: Date
+    public var typeRaw: String = ""
+    public var payloadData: Data = Data()
+    public var occurredAt: Date = Date()
 
     /// Stable encoder/decoder for `EventPayload`.
     ///

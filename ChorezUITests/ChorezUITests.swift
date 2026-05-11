@@ -16,6 +16,11 @@ final class ChorezUITests: XCTestCase {
 
     func testTabBarAppears() throws {
         let app = XCUIApplication()
+        // `-UITesting` swaps the live CloudKit-backed `ModelContainer`
+        // for an in-memory one — necessary in CI where the simulator
+        // isn't signed into iCloud and the CloudKit init can stall the
+        // first frame past the 5s wait timeout below.
+        app.launchArguments.append("-UITesting")
         app.launch()
 
         let homeTab = app.tabBars.buttons["Home"]

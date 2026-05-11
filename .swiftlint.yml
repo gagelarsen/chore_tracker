@@ -4,6 +4,9 @@ excluded:
   - .build
   - .swiftpm
   - Chorez.xcodeproj
+  # Agent worktrees stash a parallel copy of the repo; lint runs on
+  # the canonical source tree only.
+  - .claude
 
 opt_in_rules:
   - empty_count

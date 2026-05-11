@@ -8,11 +8,12 @@ import SwiftData
 /// re-priced or deactivated afterward.
 @Model
 public final class RewardRedemption {
-    public var id: UUID
-    public var kidID: UUID
-    public var rewardID: UUID
-    public var points: Int
-    public var redeemedAt: Date
+    // Property-level defaults — see Household.swift for the rationale.
+    public var id: UUID = UUID()
+    public var kidID: UUID = UUID()
+    public var rewardID: UUID = UUID()
+    public var points: Int = 0
+    public var redeemedAt: Date = Date()
 
     public init(id: UUID = UUID(),
                 kidID: UUID,
