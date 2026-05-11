@@ -64,8 +64,13 @@ public final class SyncReceiver {
     private func apply(_ change: InboundChange) {
         switch change {
         case .upsertedRecord(let record):
+            print("[ReceiverDebug] upsert recordType=\(record.recordType) recordName=\(record.recordID.recordName)")
+            for key in record.allKeys() {
+                print("[ReceiverDebug]   \(key)=\(String(describing: record[key]))")
+            }
             applyUpsert(record)
         case .deletedRecord(let recordID, let recordType):
+            print("[ReceiverDebug] delete recordType=\(recordType) recordName=\(recordID.recordName)")
             applyDelete(recordID: recordID, recordType: recordType)
         }
         // Save after each individual change rather than batching — the
