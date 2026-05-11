@@ -152,9 +152,8 @@ extension ChoreTemplateSnapshot: ShareableRecord {
         record["name"] = name as CKRecordValue
         record["points"] = points as CKRecordValue
         record["assignedKidID"] = encodeUUID(assignedKidID)
-        // Enum stored as its rawValue String; matches the persistence
-        // layout where SwiftData stores `recurrenceRaw`.
-        record["recurrence"] = recurrence.rawValue as CKRecordValue
+        // 7-bit weekday mask; same shape as SwiftData column.
+        record["daysOfWeekBitmask"] = recurrence.daysOfWeekBitmask as CKRecordValue
         record["active"] = active as CKRecordValue
         record["updatedAt"] = updatedAt as CKRecordValue
     }
@@ -165,12 +164,16 @@ extension ChoreTemplateSnapshot: ShareableRecord {
               let name = record["name"] as? String,
               let points = record["points"] as? Int,
               let assignedKidID = decodeUUID(record, "assignedKidID"),
-              let recurrenceRaw = record["recurrence"] as? String,
-              let recurrence = Recurrence(rawValue: recurrenceRaw),
               let active = record["active"] as? Bool,
               let updatedAt = record["updatedAt"] as? Date else {
             return nil
         }
+        // Pre-Phase-1.6 records used a String `recurrence` field;
+        // missing-key tolerance falls back to `.daily` so records
+        // written by the old schema still inflate correctly during a
+        // rolling upgrade.
+        let bitmask = (record["daysOfWeekBitmask"] as? Int) ?? Recurrence.daily.daysOfWeekBitmask
+        let recurrence = Recurrence(daysOfWeekBitmask: bitmask)
         self.init(id: id,
                   householdID: householdID,
                   name: name,

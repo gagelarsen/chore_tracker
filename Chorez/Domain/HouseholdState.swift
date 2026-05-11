@@ -64,12 +64,87 @@ public struct KidSnapshot: Identifiable, Hashable, Sendable {
     }
 }
 
-/// How often a `ChoreTemplate` regenerates.
+/// Day of the week. Values match `Calendar.Component.weekday` (Sun=1
+/// … Sat=7) so a `Calendar` query result drops straight into
+/// `Recurrence.includes(weekday:)` without translation.
+public enum Weekday: Int, CaseIterable, Codable, Hashable, Sendable, Identifiable {
+    case sunday = 1
+    case monday = 2
+    case tuesday = 3
+    case wednesday = 4
+    case thursday = 5
+    case friday = 6
+    case saturday = 7
+
+    public var id: Int { rawValue }
+
+    /// Bit position used by `Recurrence.daysOfWeekBitmask`. Sun=0 …
+    /// Sat=6 keeps the bitmask packed into the low 7 bits.
+    public var bitOffset: Int { rawValue - 1 }
+
+    /// Short human label (e.g. "Mon"). Used by `WeekdayPicker`.
+    public var shortLabel: String {
+        switch self {
+        case .sunday: return "Sun"
+        case .monday: return "Mon"
+        case .tuesday: return "Tue"
+        case .wednesday: return "Wed"
+        case .thursday: return "Thu"
+        case .friday: return "Fri"
+        case .saturday: return "Sat"
+        }
+    }
+
+    /// Single-character pill label.
+    public var initial: String { String(shortLabel.first!) }
+}
+
+/// Days-of-week recurrence pattern for a `ChoreTemplate`.
 ///
-/// Phase 1 only supports daily recurrence; the enum exists so later phases
-/// can extend (weekly, weekdays-only, etc.) without changing call sites.
-public enum Recurrence: String, Codable, Hashable, Sendable {
-    case daily
+/// Backed by a 7-bit `Int` (bit `weekday.bitOffset` set → that
+/// weekday's `ChoreInstance` is spawned by `autoFillTodayIfNeeded`).
+/// Bitmask form chosen for storage + sync (native CloudKit `Int`,
+/// single SwiftData column) while the struct façade gives call sites
+/// a typed API.
+///
+/// `127` covers every day (the v1 default). `0` is a valid value but
+/// effectively disables the template; UI should warn before saving.
+public struct Recurrence: Hashable, Sendable, Codable {
+    /// Low 7 bits flag the active weekdays.
+    public let daysOfWeekBitmask: Int
+
+    public init(daysOfWeekBitmask: Int) {
+        // Mask to 7 bits defensively — values outside 0...127 are
+        // user-facing nonsense and silently clamp to the valid range.
+        self.daysOfWeekBitmask = daysOfWeekBitmask & 0b1111111
+    }
+
+    public init(_ days: Set<Weekday>) {
+        let mask = days.reduce(0) { $0 | (1 << $1.bitOffset) }
+        self.init(daysOfWeekBitmask: mask)
+    }
+
+    /// `true` if `weekday`'s bit is set. Convenient for the auto-fill
+    /// gate: `template.recurrence.includes(weekday: today)`.
+    public func includes(weekday: Weekday) -> Bool {
+        (daysOfWeekBitmask & (1 << weekday.bitOffset)) != 0
+    }
+
+    public var weekdays: Set<Weekday> {
+        Set(Weekday.allCases.filter { includes(weekday: $0) })
+    }
+
+    // MARK: - Presets
+
+    /// Every day — matches Phase 1's hard-coded behaviour and the
+    /// default for migrated templates.
+    public static let daily = Recurrence(daysOfWeekBitmask: 0b1111111)
+
+    /// Monday through Friday. Bits 1-5 set → `0b0111110 = 62`.
+    public static let weekdays = Recurrence([.monday, .tuesday, .wednesday, .thursday, .friday])
+
+    /// Saturday and Sunday only. Bits 0 + 6 set → `0b1000001 = 65`.
+    public static let weekends = Recurrence([.sunday, .saturday])
 }
 
 /// Snapshot of a `ChoreTemplate` row — the parent definition that

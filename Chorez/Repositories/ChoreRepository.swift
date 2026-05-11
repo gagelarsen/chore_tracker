@@ -16,8 +16,11 @@ import SwiftData
 /// the rules engine stays the sole authority on point math.
 @MainActor
 public final class ChoreRepository {
-    private let context: ModelContext
-    private let syncEngine: (any SharedZoneSyncEngine)?
+    // `internal` (not `private`) so the `+UpdateTemplate` extension
+    // file can reach them. Same module-only access; just permits
+    // the cross-file split.
+    internal let context: ModelContext
+    internal let syncEngine: (any SharedZoneSyncEngine)?
 
     public init(context: ModelContext,
                 syncEngine: (any SharedZoneSyncEngine)? = nil) {
@@ -25,7 +28,7 @@ public final class ChoreRepository {
         self.syncEngine = syncEngine
     }
 
-    private func push(_ change: ShareableChange) {
+    internal func push(_ change: ShareableChange) {
         guard let syncEngine else { return }
         Task { await syncEngine.enqueue(change) }
     }
@@ -57,6 +60,7 @@ public final class ChoreRepository {
                                name: String,
                                points: Int,
                                assignedKidID: UUID,
+                               recurrence: Recurrence = .daily,
                                now: Date = .now) throws -> ChoreTemplate {
         // `ChoreTemplate.init` and `ChoreInstance.init` default
         // `updatedAt = .now`, so fresh inserts are sync-ready.
@@ -64,6 +68,7 @@ public final class ChoreRepository {
                                      name: name,
                                      points: points,
                                      assignedKidID: assignedKidID,
+                                     recurrence: recurrence,
                                      updatedAt: now)
         context.insert(template)
 
@@ -73,8 +78,14 @@ public final class ChoreRepository {
         )
         hhFetch.fetchLimit = 1
         var sameDayInstance: ChoreInstance?
+        // Only spawn today's instance if (a) auto-fill already ran
+        // today (so we're not jumping the gun before first launch)
+        // and (b) the new template's recurrence pattern actually
+        // includes today's weekday.
+        let todayWeekday = Self.weekday(for: now)
         if let household = try context.fetch(hhFetch).first,
-           household.lastAutoFillDate == today {
+           household.lastAutoFillDate == today,
+           recurrence.includes(weekday: todayWeekday) {
             let instance = ChoreInstance(templateID: template.id,
                                          householdID: householdID,
                                          name: name,
@@ -94,20 +105,18 @@ public final class ChoreRepository {
         return template
     }
 
-    public func updateTemplate(_ template: ChoreTemplate,
-                               name: String? = nil,
-                               points: Int? = nil,
-                               assignedKidID: UUID? = nil,
-                               active: Bool? = nil) throws {
-        if let name { template.name = name }
-        if let points { template.points = points }
-        if let assignedKidID { template.assignedKidID = assignedKidID }
-        if let active { template.active = active }
-        // Stamp on every mutation so the sync engine's LWW resolver
-        // promotes this edit over any concurrent device's stale copy.
-        template.updatedAt = .now
-        try context.save()
-        push(.upsert(template.snapshot))
+    // `updateTemplate` and its helpers live in
+    // `ChoreRepository+UpdateTemplate.swift` so this class stays under
+    // the type-body line cap once the Phase 1.6 cascade logic landed.
+    // See that file for the full doc comment + cascade rules.
+
+    /// Calendar weekday → our `Weekday` enum. Lives on the repository
+    /// because the rules engine (which is the other natural home)
+    /// stays pure and Calendar-injectable; this helper hides the
+    /// Calendar call behind one line.
+    private static func weekday(for date: Date) -> Weekday {
+        let raw = Calendar.current.component(.weekday, from: date)
+        return Weekday(rawValue: raw) ?? .sunday
     }
 
     /// Delete a template. Future (`status == .pending`) instances spawned
@@ -209,9 +218,17 @@ public final class ChoreRepository {
         )
         let templates = try context.fetch(templatesDescriptor)
 
+        // Phase 1.6: gate spawning on the template's per-weekday
+        // recurrence pattern. Templates whose pattern doesn't include
+        // today's weekday are skipped silently — no row, no event.
+        let todayWeekday = Self.weekday(for: now)
+        let templatesForToday = templates.filter { template in
+            template.recurrence.includes(weekday: todayWeekday)
+        }
+
         var spawnedInstances: [ChoreInstance] = []
-        spawnedInstances.reserveCapacity(templates.count)
-        for template in templates {
+        spawnedInstances.reserveCapacity(templatesForToday.count)
+        for template in templatesForToday {
             // `ChoreInstance.init` defaults `updatedAt = .now` so the
             // freshly inserted rows are sync-ready.
             let instance = ChoreInstance(templateID: template.id,
@@ -235,6 +252,6 @@ public final class ChoreRepository {
         for instance in spawnedInstances {
             push(.upsert(instance.snapshot))
         }
-        return templates.count
+        return spawnedInstances.count
     }
 }

@@ -28,6 +28,13 @@ public final class AppEnvironment {
     /// detect the nil case and skip outbound push.
     public let syncEngine: (any SharedZoneSyncEngine)?
 
+    /// "Now" callable — defaults to wall-clock, overridable for
+    /// tests and the `-FakeDate=YYYY-MM-DD` dev seam threaded through
+    /// `ChorezApp.init`. Exposed publicly so `ChorezApp.task` can
+    /// hand the same clock to `autoFillTodayIfNeeded` instead of
+    /// hard-coding `.now`.
+    public let dateProvider: () -> Date
+
     /// Builds the container against a `ModelContext`. `dateProvider`
     /// defaults to wall-clock `.now` and exists so tests (or a future
     /// time-travel feature) can pin the engine's notion of "now"
@@ -36,6 +43,7 @@ public final class AppEnvironment {
                 syncEngine: (any SharedZoneSyncEngine)? = nil,
                 dateProvider: @escaping () -> Date = { .now }) {
         self.syncEngine = syncEngine
+        self.dateProvider = dateProvider
         self.households = HouseholdRepository(context: context,
                                               syncEngine: syncEngine,
                                               dateProvider: dateProvider)
