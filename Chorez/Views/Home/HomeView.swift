@@ -52,7 +52,7 @@ struct HomeView: View {
         .sheet(isPresented: $showAddKid) {
             addKidSheet
         }
-        .alert("Home", isPresented: alertBinding) {
+        .alert("Home", isPresented: $alertMessage.isPresent) {
             Button("OK") { alertMessage = nil }
         } message: {
             Text(alertMessage ?? "")
@@ -106,11 +106,6 @@ struct HomeView: View {
         newKidName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var alertBinding: Binding<Bool> {
-        Binding(get: { alertMessage != nil },
-                set: { if !$0 { alertMessage = nil } })
-    }
-
     private func addKid() {
         guard let householdID = households.first?.id else { return }
         do {
@@ -123,9 +118,13 @@ struct HomeView: View {
     }
 
     private func deleteKids(at offsets: IndexSet) {
-        for index in offsets {
+        // Snapshot the targets before mutating — `kids` is a live
+        // `@Query` array and each successful delete can shift indices
+        // out from under a subsequent lookup.
+        let targets = offsets.map { kids[$0] }
+        for kid in targets {
             do {
-                try environment.kids.delete(kids[index])
+                try environment.kids.delete(kid)
             } catch {
                 alertMessage = "Could not delete kid: \(error.localizedDescription)"
             }

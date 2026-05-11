@@ -95,9 +95,7 @@ final class CoreLoopTests: XCTestCase {
                       "Expected today's chore '\(choreName)' on the kid's screen")
         checkbox.tap()
 
-        let pill = app.staticTexts["\(expectedBalanceAfter) points"]
-        XCTAssertTrue(pill.waitForExistence(timeout: timeout),
-                      "Expected balance pill to show \(expectedBalanceAfter) after completion")
+        assertBalance(app, equals: expectedBalanceAfter, context: "after completion")
     }
 
     private func addReward(_ app: XCUIApplication, name: String, points: Int) throws {
@@ -131,9 +129,7 @@ final class CoreLoopTests: XCTestCase {
         XCTAssertTrue(redeem.waitForExistence(timeout: timeout))
         redeem.tap()
 
-        let pill = app.staticTexts["\(expectedBalanceAfter) points"]
-        XCTAssertTrue(pill.waitForExistence(timeout: timeout),
-                      "Expected balance pill to show \(expectedBalanceAfter) after redemption")
+        assertBalance(app, equals: expectedBalanceAfter, context: "after redemption")
     }
 
     private func endDay(_ app: XCUIApplication) throws {
@@ -155,8 +151,18 @@ final class CoreLoopTests: XCTestCase {
         XCTAssertTrue(kidRow.waitForExistence(timeout: timeout))
         kidRow.tap()
 
-        let zeroPill = app.staticTexts["0 points"]
-        XCTAssertTrue(zeroPill.waitForExistence(timeout: timeout),
-                      "Expected balance pill to read 0 after end-of-day")
+        assertBalance(app, equals: 0, context: "after end-of-day")
+    }
+
+    /// Asserts the kid's daily-balance pill renders the expected
+    /// points value. Targets the `dailyBalancePill` identifier
+    /// directly so other point pills on the screen (per-chore,
+    /// per-reward) can't accidentally satisfy a generic label match.
+    private func assertBalance(_ app: XCUIApplication, equals expected: Int, context: String) {
+        let pill = app.descendants(matching: .any)["dailyBalancePill"]
+        XCTAssertTrue(pill.waitForExistence(timeout: timeout),
+                      "Expected daily-balance pill to render \(context)")
+        XCTAssertEqual(pill.label, "\(expected) points",
+                       "Expected balance pill to read \(expected) points \(context)")
     }
 }

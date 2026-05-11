@@ -22,6 +22,11 @@ struct PointPill: View {
             .padding(.vertical, 4)
             .background(backgroundTint, in: Capsule())
             .foregroundStyle(foregroundTint)
+            // Collapse the inner `Text` so the accessibility label is the
+            // single element XCUITest sees — otherwise both the visual
+            // `"<n> pt"` and the override `"<n> points"` can land in the
+            // a11y tree and make `staticTexts["<n> points"]` ambiguous.
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text("\(points) points"))
     }
 

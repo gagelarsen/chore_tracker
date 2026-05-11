@@ -41,16 +41,20 @@ struct ChoresManageView: View {
         .navigationTitle("Chores")
         .toolbar { toolbarContent }
         .sheet(isPresented: $showAddTemplate) {
-            AddTemplateSheet(kids: kids) { kidID, name, points in
+            AddChoreSheet(title: "New recurring chore",
+                          confirmIdentifier: "confirmAddTemplateButton",
+                          kids: kids) { kidID, name, points in
                 addTemplate(kidID: kidID, name: name, points: points)
             }
         }
         .sheet(isPresented: $showAddAdHoc) {
-            AddAdHocSheet(kids: kids) { kidID, name, points in
+            AddChoreSheet(title: "Add ad-hoc chore",
+                          confirmIdentifier: "confirmAddAdHocButton",
+                          kids: kids) { kidID, name, points in
                 addAdHoc(kidID: kidID, name: name, points: points)
             }
         }
-        .alert("Chores", isPresented: alertBinding) {
+        .alert("Chores", isPresented: $alertMessage.isPresent) {
             Button("OK") { alertMessage = nil }
         } message: {
             Text(alertMessage ?? "")
@@ -127,11 +131,6 @@ struct ChoresManageView: View {
 
     // MARK: - Actions
 
-    private var alertBinding: Binding<Bool> {
-        Binding(get: { alertMessage != nil },
-                set: { if !$0 { alertMessage = nil } })
-    }
-
     private func addTemplate(kidID: UUID, name: String, points: Int) {
         guard let householdID = households.first?.id else { return }
         do {
@@ -160,9 +159,11 @@ struct ChoresManageView: View {
     }
 
     private func delete(templates: [ChoreTemplate], at offsets: IndexSet) {
-        for index in offsets {
+        // Snapshot targets — see the note in `HomeView.deleteKids`.
+        let targets = offsets.map { templates[$0] }
+        for template in targets {
             do {
-                try environment.chores.deleteTemplate(templates[index])
+                try environment.chores.deleteTemplate(template)
             } catch {
                 alertMessage = "Could not delete chore: \(error.localizedDescription)"
             }
@@ -170,35 +171,15 @@ struct ChoresManageView: View {
     }
 }
 
-// MARK: - Add sheets
+// MARK: - Add sheet
 
-/// Shared form shape used by both add-template and add-ad-hoc sheets.
-private struct ChoreFormFields: View {
-    let kids: [Kid]
-    @Binding var assignedKidID: UUID?
-    @Binding var name: String
-    @Binding var pointsText: String
-
-    var body: some View {
-        Section {
-            Picker("For", selection: $assignedKidID) {
-                Text("Choose a kid").tag(UUID?.none)
-                ForEach(kids) { kid in
-                    Text(kid.name).tag(UUID?.some(kid.id))
-                }
-            }
-            .accessibilityIdentifier("kidPicker")
-            TextField("Name", text: $name)
-                .textInputAutocapitalization(.sentences)
-                .accessibilityIdentifier("choreNameField")
-            TextField("Points", text: $pointsText)
-                .keyboardType(.numberPad)
-                .accessibilityIdentifier("chorePointsField")
-        }
-    }
-}
-
-private struct AddTemplateSheet: View {
+/// Single sheet for both "new recurring chore" and "today only (ad-hoc)"
+/// — the two forms differ only in their `navigationTitle` and the
+/// accessibility identifier on the confirm button, so collapsing them
+/// keeps `00-standards.md`'s DRY rule honest.
+private struct AddChoreSheet: View {
+    let title: String
+    let confirmIdentifier: String
     let kids: [Kid]
     let onSave: (UUID, String, Int) -> Void
 
@@ -210,12 +191,23 @@ private struct AddTemplateSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                ChoreFormFields(kids: kids,
-                                assignedKidID: $assignedKidID,
-                                name: $name,
-                                pointsText: $pointsText)
+                Section {
+                    Picker("For", selection: $assignedKidID) {
+                        Text("Choose a kid").tag(UUID?.none)
+                        ForEach(kids) { kid in
+                            Text(kid.name).tag(UUID?.some(kid.id))
+                        }
+                    }
+                    .accessibilityIdentifier("kidPicker")
+                    TextField("Name", text: $name)
+                        .textInputAutocapitalization(.sentences)
+                        .accessibilityIdentifier("choreNameField")
+                    TextField("Points", text: $pointsText)
+                        .keyboardType(.numberPad)
+                        .accessibilityIdentifier("chorePointsField")
+                }
             }
-            .navigationTitle("New recurring chore")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -223,65 +215,28 @@ private struct AddTemplateSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
-                        if let id = assignedKidID, let pts = Int(pointsText), pts >= 0 {
+                        if let id = assignedKidID, let pts = parsedPoints {
                             onSave(id, name.trimmingCharacters(in: .whitespacesAndNewlines), pts)
                         }
                     }
                     .disabled(!isValid)
-                    .accessibilityIdentifier("confirmAddTemplateButton")
+                    .accessibilityIdentifier(confirmIdentifier)
                 }
             }
         }
         .presentationDetents([.medium])
     }
 
-    private var isValid: Bool {
-        assignedKidID != nil
-            && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && (Int(pointsText) ?? -1) >= 0
-    }
-}
-
-private struct AddAdHocSheet: View {
-    let kids: [Kid]
-    let onSave: (UUID, String, Int) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var assignedKidID: UUID?
-    @State private var name = ""
-    @State private var pointsText = ""
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                ChoreFormFields(kids: kids,
-                                assignedKidID: $assignedKidID,
-                                name: $name,
-                                pointsText: $pointsText)
-            }
-            .navigationTitle("Add ad-hoc chore")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
-                        if let id = assignedKidID, let pts = Int(pointsText), pts >= 0 {
-                            onSave(id, name.trimmingCharacters(in: .whitespacesAndNewlines), pts)
-                        }
-                    }
-                    .disabled(!isValid)
-                    .accessibilityIdentifier("confirmAddAdHocButton")
-                }
-            }
-        }
-        .presentationDetents([.medium])
+    /// Cap points at 10,000 — same defensive bound used by `KidDetailView`'s
+    /// bonus parsing to keep engine arithmetic safely inside `Int`.
+    private var parsedPoints: Int? {
+        guard let value = Int(pointsText), (0...10_000).contains(value) else { return nil }
+        return value
     }
 
     private var isValid: Bool {
         assignedKidID != nil
             && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && (Int(pointsText) ?? -1) >= 0
+            && parsedPoints != nil
     }
 }

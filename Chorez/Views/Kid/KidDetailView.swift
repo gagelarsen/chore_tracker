@@ -12,8 +12,7 @@ struct KidDetailView: View {
 
     @Environment(AppEnvironment.self) private var environment
     @Query private var kidMatches: [Kid]
-    @Query(sort: [SortDescriptor(\ChoreInstance.name)])
-    private var allInstances: [ChoreInstance]
+    @Query private var todaysChores: [ChoreInstance]
     @Query(filter: #Predicate<Reward> { $0.active },
            sort: [SortDescriptor(\Reward.points), SortDescriptor(\Reward.name)])
     private var rewards: [Reward]
@@ -25,6 +24,18 @@ struct KidDetailView: View {
     init(kidID: UUID) {
         self.kidID = kidID
         _kidMatches = Query(filter: #Predicate<Kid> { $0.id == kidID })
+        // Snapshot `today` at init so the `#Predicate` captures a
+        // concrete value rather than calling `Calendar.current` inside
+        // the macro (which the predicate macro can't model). Pushing
+        // the day-boundary filter into the query also avoids loading
+        // every ChoreInstance row just to filter in memory.
+        let today = Calendar.current.startOfDay(for: Date.now)
+        _todaysChores = Query(
+            filter: #Predicate<ChoreInstance> { instance in
+                instance.assignedKidID == kidID && instance.date == today
+            },
+            sort: [SortDescriptor(\.name)]
+        )
     }
 
     var body: some View {
@@ -51,7 +62,7 @@ struct KidDetailView: View {
             }
         }
         .sheet(isPresented: $showBonusSheet) { bonusSheet }
-        .alert("Kid", isPresented: alertBinding) {
+        .alert("Kid", isPresented: $alertMessage.isPresent) {
             Button("OK") { alertMessage = nil }
         } message: {
             Text(alertMessage ?? "")
@@ -60,7 +71,6 @@ struct KidDetailView: View {
 
     @ViewBuilder
     private func kidContent(for kid: Kid) -> some View {
-        let todaysChores = todaysInstances(for: kid.id)
         List {
             Section("Today's balance") {
                 HStack {
@@ -153,18 +163,14 @@ struct KidDetailView: View {
 
     // MARK: - Helpers
 
-    private func todaysInstances(for kid: UUID) -> [ChoreInstance] {
-        let today = Calendar.current.startOfDay(for: Date.now)
-        return allInstances.filter { $0.assignedKidID == kid && $0.date == today }
-    }
-
+    /// Cap parsed bonus to ±10,000 — covers every realistic parent
+    /// scenario and prevents arbitrary `Int` input from triggering a
+    /// crash in the engine's `currentDailyBalance + points` addition
+    /// (Swift traps on signed overflow in debug).
     private var parsedBonus: Int? {
-        Int(bonusPoints.trimmingCharacters(in: .whitespaces))
-    }
-
-    private var alertBinding: Binding<Bool> {
-        Binding(get: { alertMessage != nil },
-                set: { if !$0 { alertMessage = nil } })
+        guard let value = Int(bonusPoints.trimmingCharacters(in: .whitespaces)),
+              abs(value) <= 10_000 else { return nil }
+        return value
     }
 
     // MARK: - Actions

@@ -50,7 +50,7 @@ struct RewardsManageView: View {
                 addReward(name: name, points: points)
             }
         }
-        .alert("Rewards", isPresented: alertBinding) {
+        .alert("Rewards", isPresented: $alertMessage.isPresent) {
             Button("OK") { alertMessage = nil }
         } message: {
             Text(alertMessage ?? "")
@@ -91,11 +91,6 @@ struct RewardsManageView: View {
 
     // MARK: - Actions
 
-    private var alertBinding: Binding<Bool> {
-        Binding(get: { alertMessage != nil },
-                set: { if !$0 { alertMessage = nil } })
-    }
-
     private func addReward(name: String, points: Int) {
         guard let householdID = households.first?.id else { return }
         do {
@@ -117,9 +112,11 @@ struct RewardsManageView: View {
     }
 
     private func deleteRewards(at offsets: IndexSet) {
-        for index in offsets {
+        // Snapshot targets — see the note in `HomeView.deleteKids`.
+        let targets = offsets.map { rewards[$0] }
+        for reward in targets {
             do {
-                try environment.rewards.delete(rewards[index])
+                try environment.rewards.delete(reward)
             } catch {
                 alertMessage = "Could not delete reward: \(error.localizedDescription)"
             }

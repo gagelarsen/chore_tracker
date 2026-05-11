@@ -41,7 +41,7 @@ struct SettingsView: View {
         } message: {
             Text("Zeroes every kid's daily balance and clears today's chores. This cannot be undone.")
         }
-        .alert("Settings", isPresented: alertBinding) {
+        .alert("Settings", isPresented: $alertMessage.isPresent) {
             Button("OK") { alertMessage = nil }
         } message: {
             Text(alertMessage ?? "")
@@ -103,21 +103,22 @@ struct SettingsView: View {
         draftHouseholdName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var alertBinding: Binding<Bool> {
-        Binding(get: { alertMessage != nil },
-                set: { if !$0 { alertMessage = nil } })
-    }
-
     private func createHousehold() {
+        // Clear the draft up front so a thrown error after
+        // `createIfMissing` succeeds (e.g. an unlikely SwiftData write
+        // failure inside `autoFillTodayIfNeeded`) doesn't leave the
+        // bootstrap form looking actionable when the household row
+        // already exists.
+        let name = trimmedDraft
+        draftHouseholdName = ""
         do {
-            _ = try environment.households.createIfMissing(name: trimmedDraft)
+            _ = try environment.households.createIfMissing(name: name)
             // The auto-fill hook ran once at app launch when there was
             // no household to act on. Re-run it now so
             // `Household.lastAutoFillDate` is set to today — that's
             // what tells `createTemplate` it's safe to instantiate
             // today's chore alongside the new template.
             _ = try environment.chores.autoFillTodayIfNeeded(now: .now)
-            draftHouseholdName = ""
         } catch {
             alertMessage = "Could not create family: \(error.localizedDescription)"
         }

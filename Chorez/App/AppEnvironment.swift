@@ -22,6 +22,10 @@ public final class AppEnvironment {
     public let rewards: RewardRepository
     public let events: EventRepository
 
+    /// Builds the container against a `ModelContext`. `dateProvider`
+    /// defaults to wall-clock `.now` and exists so tests (or a future
+    /// time-travel feature) can pin the engine's notion of "now"
+    /// without monkey-patching globals.
     public init(context: ModelContext, dateProvider: @escaping () -> Date = { .now }) {
         self.households = HouseholdRepository(context: context, dateProvider: dateProvider)
         self.kids = KidRepository(context: context)
