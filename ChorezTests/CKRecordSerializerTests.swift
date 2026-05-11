@@ -99,23 +99,35 @@ struct KidSnapshotSerializerTests {
 
 @Suite("ChoreTemplateSnapshot CKRecord round-trip")
 struct ChoreTemplateSnapshotSerializerTests {
-    @Test("Round-trip preserves enum rawValue and all fields")
+    @Test("Round-trip preserves daysOfWeekBitmask and all fields")
     func roundTrip() throws {
         let original = Fixture.template()
         let record = Fixture.freshRecord(type: ChoreTemplateSnapshot.ckRecordType)
         original.encode(into: record)
         let decoded = try #require(ChoreTemplateSnapshot(record: record))
         #expect(decoded == original)
-        // Spot-check: enum encoded as raw string in the record.
-        #expect(record["recurrence"] as? String == Recurrence.daily.rawValue)
+        // Spot-check: bitmask encoded as native Int in the record.
+        #expect(record["daysOfWeekBitmask"] as? Int == Recurrence.daily.daysOfWeekBitmask)
     }
 
-    @Test("Unknown recurrence raw fails decode (defense against schema drift)")
-    func unknownRecurrenceFails() {
+    @Test("Round-trip preserves a non-daily weekday pattern")
+    func roundTripWeekends() throws {
+        var snapshot = Fixture.template()
+        snapshot.recurrence = .weekends
+        let record = Fixture.freshRecord(type: ChoreTemplateSnapshot.ckRecordType)
+        snapshot.encode(into: record)
+        let decoded = try #require(ChoreTemplateSnapshot(record: record))
+        #expect(decoded.recurrence == .weekends)
+        #expect(decoded == snapshot)
+    }
+
+    @Test("Missing daysOfWeekBitmask field falls back to .daily")
+    func missingBitmaskFallsBackToDaily() throws {
         let record = Fixture.freshRecord(type: ChoreTemplateSnapshot.ckRecordType)
         Fixture.template().encode(into: record)
-        record["recurrence"] = "weekly" as CKRecordValue  // not in v1 enum
-        #expect(ChoreTemplateSnapshot(record: record) == nil)
+        record["daysOfWeekBitmask"] = nil
+        let decoded = try #require(ChoreTemplateSnapshot(record: record))
+        #expect(decoded.recurrence == .daily)
     }
 
     @Test("Missing assignedKidID returns nil")

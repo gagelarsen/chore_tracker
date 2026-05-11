@@ -62,8 +62,33 @@ struct ChorezApp: App {
         self.syncCoordinator = coordinator
         self.syncReceiver = receiver
 
+        // `-FakeDate=YYYY-MM-DD` lets dev sanity-checks and UI tests
+        // pin "now" to a specific calendar day so the Phase 1.6
+        // weekday-recurrence gate is exercisable without waiting for
+        // the real day to roll. Defaults to wall-clock `.now`.
+        let dateProvider: () -> Date = Self.dateProviderFromArguments()
         self.appEnvironment = AppEnvironment(context: container.mainContext,
-                                             syncEngine: coordinator)
+                                             syncEngine: coordinator,
+                                             dateProvider: dateProvider)
+    }
+
+    /// Parses `-FakeDate=YYYY-MM-DD` out of the launch arguments and
+    /// returns a date provider pinned to that day's noon (noon to
+    /// avoid `startOfDay` boundary surprises across timezones).
+    /// Returns `{ .now }` when the argument is absent or malformed.
+    private static func dateProviderFromArguments() -> () -> Date {
+        guard let arg = ProcessInfo.processInfo.arguments.first(where: {
+            $0.hasPrefix("-FakeDate=")
+        }) else { return { .now } }
+        let raw = String(arg.dropFirst("-FakeDate=".count))
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        guard var date = formatter.date(from: raw) else { return { .now } }
+        // Bump to noon local time so a startOfDay-roundtrip is stable.
+        date = Calendar.current.date(byAdding: .hour, value: 12, to: date) ?? date
+        return { date }
     }
 
     private static func makeContainer(schema: Schema, inMemory: Bool) -> ModelContainer {
@@ -102,7 +127,9 @@ struct ChorezApp: App {
                         try? await syncCoordinator.start()
                     }
                     syncReceiver?.start()
-                    try? appEnvironment.chores.autoFillTodayIfNeeded(now: .now)
+                    try? appEnvironment.chores.autoFillTodayIfNeeded(
+                        now: appEnvironment.dateProvider()
+                    )
                 }
         }
         .modelContainer(container)

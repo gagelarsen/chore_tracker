@@ -156,4 +156,98 @@ struct ChoreRepositoryTests {
         #expect(remaining.count == 1)
         #expect(remaining.first?.status == .done)
     }
+
+    // MARK: - Phase 1.6 recurrence + edit cascade
+
+    /// `Self.now` (1_700_000_000) falls on Tuesday 2023-11-14. The
+    /// weekday-gate tests use that fact directly so we don't have
+    /// to introduce a fake-clock just to know what day "today" is.
+    @Test("autoFillTodayIfNeeded skips templates whose weekday is excluded")
+    func autoFillSkipsWeekdayMismatch() throws {
+        let context = try RepoFixture.makeContext()
+        let household = try RepoFixture.seed(context: context, kidNames: ["A"])
+        let kid = try KidRepository(context: context).all()[0]
+        let repo = ChoreRepository(context: context)
+
+        // .weekends covers Sun + Sat only; Tuesday is excluded.
+        try repo.createTemplate(householdID: household.id, name: "Weekend chore",
+                                points: 5, assignedKidID: kid.id,
+                                recurrence: .weekends, now: Self.now)
+        // .weekdays covers Mon-Fri including Tuesday.
+        try repo.createTemplate(householdID: household.id, name: "Weekday chore",
+                                points: 3, assignedKidID: kid.id,
+                                recurrence: .weekdays, now: Self.now)
+
+        let added = try repo.autoFillTodayIfNeeded(now: Self.now)
+        #expect(added == 1)
+        let instances = try repo.instances(forDate: Self.now)
+        #expect(instances.count == 1)
+        #expect(instances.first?.name == "Weekday chore")
+    }
+
+    @Test("updateTemplate cascades name/points/kid to today's pending instance")
+    func updateTemplateCascadesToPendingInstance() throws {
+        let context = try RepoFixture.makeContext()
+        let household = try RepoFixture.seed(context: context, kidNames: ["Anna", "Ben"])
+        let kids = try KidRepository(context: context).all()
+        let repo = ChoreRepository(context: context)
+        household.lastAutoFillDate = Self.today
+        try context.save()
+        let template = try repo.createTemplate(householdID: household.id, name: "Dishes",
+                                               points: 5, assignedKidID: kids[0].id,
+                                               now: Self.now)
+
+        try repo.updateTemplate(template,
+                                name: "Wash dishes",
+                                points: 8,
+                                assignedKidID: kids[1].id,
+                                now: Self.now)
+
+        let instance = try #require(try repo.instances(forDate: Self.now).first)
+        #expect(instance.name == "Wash dishes")
+        #expect(instance.points == 8)
+        #expect(instance.assignedKidID == kids[1].id)
+    }
+
+    @Test("updateTemplate(active: false) deletes today's pending instance")
+    func updateTemplateDeactivateRemovesPendingInstance() throws {
+        let context = try RepoFixture.makeContext()
+        let household = try RepoFixture.seed(context: context, kidNames: ["A"])
+        let kid = try KidRepository(context: context).all()[0]
+        let repo = ChoreRepository(context: context)
+        household.lastAutoFillDate = Self.today
+        try context.save()
+        let template = try repo.createTemplate(householdID: household.id, name: "Dishes",
+                                               points: 5, assignedKidID: kid.id,
+                                               now: Self.now)
+        #expect(try repo.instances(forDate: Self.now).count == 1)
+
+        try repo.updateTemplate(template, active: false, now: Self.now)
+
+        #expect(try repo.instances(forDate: Self.now).isEmpty)
+        #expect(template.active == false)
+    }
+
+    @Test("updateTemplate(active: false) leaves a completed instance alone")
+    func updateTemplateDeactivateKeepsCompletedInstance() throws {
+        let context = try RepoFixture.makeContext()
+        let household = try RepoFixture.seed(context: context, kidNames: ["A"])
+        let kid = try KidRepository(context: context).all()[0]
+        let repo = ChoreRepository(context: context)
+        household.lastAutoFillDate = Self.today
+        try context.save()
+        let template = try repo.createTemplate(householdID: household.id, name: "Dishes",
+                                               points: 5, assignedKidID: kid.id,
+                                               now: Self.now)
+        let instance = try #require(try repo.instances(forDate: Self.now).first)
+        instance.status = .done
+        instance.completedAt = Self.now
+        try context.save()
+
+        try repo.updateTemplate(template, active: false, now: Self.now)
+
+        let remaining = try repo.instances(forDate: Self.now)
+        #expect(remaining.count == 1)
+        #expect(remaining.first?.status == .done)
+    }
 }
