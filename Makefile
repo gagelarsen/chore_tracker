@@ -3,6 +3,12 @@ SCHEME := Chorez
 DESTINATION ?= platform=iOS Simulator,name=iPhone 17
 RESULT_BUNDLE := build/Chorez.xcresult
 
+# Local-only signing info (Apple Developer team ID for CloudKit entitlement).
+# `.chorez-team.local` is gitignored — see README. Optional: builds without it
+# still succeed under CODE_SIGNING_ALLOWED=NO (the CI path).
+-include .chorez-team.local
+export CHOREZ_TEAM_ID
+
 .PHONY: project build test lint clean help
 
 help:
