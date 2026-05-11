@@ -50,10 +50,13 @@ public final class ChoreRepository {
                                points: Int,
                                assignedKidID: UUID,
                                now: Date = .now) throws -> ChoreTemplate {
+        // `ChoreTemplate.init` and `ChoreInstance.init` default
+        // `updatedAt = .now`, so fresh inserts are sync-ready.
         let template = ChoreTemplate(householdID: householdID,
                                      name: name,
                                      points: points,
-                                     assignedKidID: assignedKidID)
+                                     assignedKidID: assignedKidID,
+                                     updatedAt: now)
         context.insert(template)
 
         let today = Calendar.current.startOfDay(for: now)
@@ -68,7 +71,8 @@ public final class ChoreRepository {
                                          name: name,
                                          points: points,
                                          assignedKidID: assignedKidID,
-                                         date: today))
+                                         date: today,
+                                         updatedAt: now))
         }
 
         try context.save()
@@ -84,6 +88,9 @@ public final class ChoreRepository {
         if let points { template.points = points }
         if let assignedKidID { template.assignedKidID = assignedKidID }
         if let active { template.active = active }
+        // Stamp on every mutation so the sync engine's LWW resolver
+        // promotes this edit over any concurrent device's stale copy.
+        template.updatedAt = .now
         try context.save()
     }
 
@@ -130,6 +137,8 @@ public final class ChoreRepository {
                                     name: String,
                                     points: Int,
                                     on date: Date) throws -> ChoreInstance {
+        // `ChoreInstance.init` defaults `updatedAt = .now`, so the freshly
+        // inserted row is sync-ready.
         let instance = ChoreInstance(templateID: nil,
                                      householdID: householdID,
                                      name: name,
@@ -167,6 +176,8 @@ public final class ChoreRepository {
         let templates = try context.fetch(templatesDescriptor)
 
         for template in templates {
+            // `ChoreInstance.init` defaults `updatedAt = .now` so the
+            // freshly inserted rows are sync-ready.
             context.insert(ChoreInstance(templateID: template.id,
                                          householdID: householdID,
                                          name: template.name,
@@ -176,6 +187,11 @@ public final class ChoreRepository {
         }
 
         household.lastAutoFillDate = today
+        // The Household row's `lastAutoFillDate` field just changed, so
+        // bump its `updatedAt` to keep the sync engine's LWW resolver
+        // honest. Without this stamp, a concurrent edit on the other
+        // device could clobber `lastAutoFillDate` and re-trigger auto-fill.
+        household.updatedAt = .now
         try context.save()
         return templates.count
     }

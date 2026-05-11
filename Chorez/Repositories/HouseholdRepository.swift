@@ -46,9 +46,14 @@ public final class HouseholdRepository {
     public func createIfMissing(name: String = "Our Family",
                                 ownerCloudUserID: String? = nil) throws -> Household {
         if let existing = try current() { return existing }
+        // `Household.init` defaults `updatedAt = .now`, but we route it
+        // through the injected `dateProvider` so test fixtures with a
+        // fixed clock produce deterministic sync timestamps.
+        let now = dateProvider()
         let household = Household(name: name,
                                   ownerCloudUserID: ownerCloudUserID,
-                                  createdAt: dateProvider())
+                                  createdAt: now,
+                                  updatedAt: now)
         context.insert(household)
         try context.save()
         return household
@@ -158,6 +163,11 @@ public final class HouseholdRepository {
                   let oldSnap = oldByID[snapshot.id],
                   oldSnap != snapshot else { continue }
             model.currentDailyBalance = snapshot.currentDailyBalance
+            // The engine stamped `updatedAt` on the snapshot whenever it
+            // mutated the balance (via `creditBalance` or `closeOutDay`).
+            // Copy that timestamp through so the sync engine's LWW
+            // resolver sees the same moment the engine recorded.
+            model.updatedAt = snapshot.updatedAt
         }
     }
 
@@ -185,6 +195,10 @@ public final class HouseholdRepository {
                   oldSnap != snapshot else { continue }
             model.status = snapshot.status
             model.completedAt = snapshot.completedAt
+            // Engine stamped `updatedAt` on the snapshot when it flipped
+            // the status; mirror that into the SwiftData row so sync
+            // sees the same moment.
+            model.updatedAt = snapshot.updatedAt
         }
     }
 

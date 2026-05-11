@@ -34,6 +34,8 @@ public final class KidRepository {
     @discardableResult
     public func create(householdID: UUID, name: String, displayOrder: Int? = nil) throws -> Kid {
         let order = try displayOrder ?? all().count
+        // `Kid.init` defaults `updatedAt = .now`, so newly created rows
+        // are sync-ready without an explicit stamp here.
         let kid = Kid(householdID: householdID, name: name, displayOrder: order)
         context.insert(kid)
         try context.save()
@@ -42,11 +44,15 @@ public final class KidRepository {
 
     public func rename(_ kid: Kid, to newName: String) throws {
         kid.name = newName
+        // Stamp on every mutation so the sync engine's LWW resolver
+        // promotes this edit over any concurrent device's stale copy.
+        kid.updatedAt = .now
         try context.save()
     }
 
     public func reorder(_ kid: Kid, to displayOrder: Int) throws {
         kid.displayOrder = displayOrder
+        kid.updatedAt = .now
         try context.save()
     }
 

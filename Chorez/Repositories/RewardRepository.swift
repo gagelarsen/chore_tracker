@@ -38,6 +38,8 @@ public final class RewardRepository {
 
     @discardableResult
     public func create(householdID: UUID, name: String, points: Int) throws -> Reward {
+        // `Reward.init` defaults `updatedAt = .now`, so the row is
+        // sync-ready out of the gate.
         let reward = Reward(householdID: householdID, name: name, points: points)
         context.insert(reward)
         try context.save()
@@ -51,6 +53,9 @@ public final class RewardRepository {
         if let name { reward.name = name }
         if let points { reward.points = points }
         if let active { reward.active = active }
+        // Stamp on every mutation so the sync engine's LWW resolver
+        // promotes this edit over any concurrent device's stale copy.
+        reward.updatedAt = .now
         try context.save()
     }
 
