@@ -120,7 +120,7 @@ public struct CloudKitShareSheet: UIViewControllerRepresentable {
         fileprivate func startShareFlow() async {
             let container = CKContainer(identifier: cloudKitContainerIdentifier)
             let database = container.privateCloudDatabase
-            let zoneID = CKRecordZone.ID(zoneName: Self.sharedZoneName,
+            let zoneID = CKRecordZone.ID(zoneName: SharedZone.name,
                                          ownerName: CKCurrentUserDefaultName)
             let rootRecordID = CKRecord.ID(recordName: "Household-\(household.id.uuidString)",
                                            zoneID: zoneID)
@@ -244,13 +244,12 @@ public struct CloudKitShareSheet: UIViewControllerRepresentable {
             onComplete(result)
         }
 
-        /// Single zone shared by all of the household's CloudKit
-        /// records. A custom zone is required — the default zone
-        /// can't host shares.
-        fileprivate static let sharedZoneName = "ChorezSharedZone"
         /// Record type for the share root. Kept distinct from the
         /// SwiftData-generated record types so the share anchor doesn't
-        /// collide with model-mirrored data.
+        /// collide with model-mirrored data. The zone name itself
+        /// lives in `SharedZone` so the share coordinator and the
+        /// `CKSyncEngineCoordinator` (which writes the actual data
+        /// into the same zone) agree on it.
         fileprivate static let householdRecordType = "ChorezHouseholdShare"
     }
 

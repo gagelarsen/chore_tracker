@@ -25,10 +25,19 @@ public enum HouseholdRepositoryError: Error, Equatable, Sendable {
 public final class HouseholdRepository {
     private let context: ModelContext
     private let dateProvider: () -> Date
+    private let syncEngine: (any SharedZoneSyncEngine)?
 
-    public init(context: ModelContext, dateProvider: @escaping () -> Date = { .now }) {
+    public init(context: ModelContext,
+                syncEngine: (any SharedZoneSyncEngine)? = nil,
+                dateProvider: @escaping () -> Date = { .now }) {
         self.context = context
+        self.syncEngine = syncEngine
         self.dateProvider = dateProvider
+    }
+
+    private func push(_ change: ShareableChange) {
+        guard let syncEngine else { return }
+        Task { await syncEngine.enqueue(change) }
     }
 
     // MARK: - Lookup / create
@@ -56,6 +65,7 @@ public final class HouseholdRepository {
                                   updatedAt: now)
         context.insert(household)
         try context.save()
+        push(.upsert(household.snapshot))
         return household
     }
 
@@ -141,11 +151,19 @@ public final class HouseholdRepository {
     // MARK: - Diff & save
 
     private func writeBack(old: HouseholdState, new: HouseholdState) throws {
-        try writeBackKids(old: old.kids, new: new.kids)
-        try writeBackInstances(old: old.instances, new: new.instances)
-        try writeBackAppendOnlyEvents(old: old.events, new: new.events)
-        try writeBackAppendOnlyRedemptions(old: old.redemptions, new: new.redemptions)
+        let writes = try writeBackKids(old: old.kids, new: new.kids)
+        let instanceWrites = try writeBackInstances(old: old.instances, new: new.instances)
+        let eventInserts = try writeBackAppendOnlyEvents(old: old.events, new: new.events)
+        let redemptionInserts = try writeBackAppendOnlyRedemptions(old: old.redemptions,
+                                                                   new: new.redemptions)
         try context.save()
+
+        // Push engine-driven mutations after persistence completes so a
+        // mid-flight CloudKit batch can't see a half-written diff.
+        for snapshot in writes { push(.upsert(snapshot)) }
+        for change in instanceWrites { push(change) }
+        for snapshot in eventInserts { push(.upsert(snapshot)) }
+        for snapshot in redemptionInserts { push(.upsert(snapshot)) }
     }
 
     /// Intentionally narrow: only `currentDailyBalance` is engine-owned.
@@ -154,10 +172,11 @@ public final class HouseholdRepository {
     /// engine function ever changed them. That is by design for Phase 1;
     /// if a future engine function needs to mutate other Kid fields,
     /// extend this writer at the same time as the engine change.
-    private func writeBackKids(old: [KidSnapshot], new: [KidSnapshot]) throws {
+    private func writeBackKids(old: [KidSnapshot], new: [KidSnapshot]) throws -> [KidSnapshot] {
         let oldByID = Dictionary(uniqueKeysWithValues: old.map { ($0.id, $0) })
         let models = try context.fetch(FetchDescriptor<Kid>())
         let modelsByID = Dictionary(uniqueKeysWithValues: models.map { ($0.id, $0) })
+        var pushable: [KidSnapshot] = []
         for snapshot in new {
             guard let model = modelsByID[snapshot.id],
                   let oldSnap = oldByID[snapshot.id],
@@ -168,7 +187,9 @@ public final class HouseholdRepository {
             // Copy that timestamp through so the sync engine's LWW
             // resolver sees the same moment the engine recorded.
             model.updatedAt = snapshot.updatedAt
+            pushable.append(snapshot)
         }
+        return pushable
     }
 
     /// Engine-driven ChoreInstance writes cover two operations: marking
@@ -178,15 +199,17 @@ public final class HouseholdRepository {
     /// directly, not by the engine — so an engine-emitted snapshot with
     /// a fresh ID is silently ignored here, intentionally.
     private func writeBackInstances(old: [ChoreInstanceSnapshot],
-                                    new: [ChoreInstanceSnapshot]) throws {
+                                    new: [ChoreInstanceSnapshot]) throws -> [ShareableChange] {
         let oldByID = Dictionary(uniqueKeysWithValues: old.map { ($0.id, $0) })
         let newIDs = Set(new.map(\.id))
         let models = try context.fetch(FetchDescriptor<ChoreInstance>())
         let modelsByID = Dictionary(uniqueKeysWithValues: models.map { ($0.id, $0) })
+        var changes: [ShareableChange] = []
 
         // Deletions first (e.g. closeOutDay sweep)
         for (id, model) in modelsByID where !newIDs.contains(id) && oldByID[id] != nil {
             context.delete(model)
+            changes.append(.delete(.init(id: id, ckRecordType: ChoreInstanceSnapshot.ckRecordType)))
         }
         // Updates
         for snapshot in new {
@@ -199,21 +222,32 @@ public final class HouseholdRepository {
             // the status; mirror that into the SwiftData row so sync
             // sees the same moment.
             model.updatedAt = snapshot.updatedAt
+            changes.append(.upsert(snapshot))
         }
+        return changes
     }
 
-    private func writeBackAppendOnlyEvents(old: [EventSnapshot], new: [EventSnapshot]) throws {
+    private func writeBackAppendOnlyEvents(old: [EventSnapshot],
+                                           new: [EventSnapshot]) throws -> [EventSnapshot] {
         let oldIDs = Set(old.map(\.id))
+        var inserts: [EventSnapshot] = []
         for snapshot in new where !oldIDs.contains(snapshot.id) {
             context.insert(Event(snapshot: snapshot))
+            inserts.append(snapshot)
         }
+        return inserts
     }
 
-    private func writeBackAppendOnlyRedemptions(old: [RewardRedemptionSnapshot],
-                                                new: [RewardRedemptionSnapshot]) throws {
+    private func writeBackAppendOnlyRedemptions(
+        old: [RewardRedemptionSnapshot],
+        new: [RewardRedemptionSnapshot]
+    ) throws -> [RewardRedemptionSnapshot] {
         let oldIDs = Set(old.map(\.id))
+        var inserts: [RewardRedemptionSnapshot] = []
         for snapshot in new where !oldIDs.contains(snapshot.id) {
             context.insert(RewardRedemption(snapshot: snapshot))
+            inserts.append(snapshot)
         }
+        return inserts
     }
 }

@@ -22,15 +22,26 @@ public final class AppEnvironment {
     public let rewards: RewardRepository
     public let events: EventRepository
 
+    /// Optional sync engine for Phase 1.5 cross-account replication.
+    /// `nil` in the in-memory test container and on the simulator
+    /// without entitlements (see `ChorezApp.init`). Repositories
+    /// detect the nil case and skip outbound push.
+    public let syncEngine: (any SharedZoneSyncEngine)?
+
     /// Builds the container against a `ModelContext`. `dateProvider`
     /// defaults to wall-clock `.now` and exists so tests (or a future
     /// time-travel feature) can pin the engine's notion of "now"
     /// without monkey-patching globals.
-    public init(context: ModelContext, dateProvider: @escaping () -> Date = { .now }) {
-        self.households = HouseholdRepository(context: context, dateProvider: dateProvider)
-        self.kids = KidRepository(context: context)
-        self.chores = ChoreRepository(context: context)
-        self.rewards = RewardRepository(context: context)
+    public init(context: ModelContext,
+                syncEngine: (any SharedZoneSyncEngine)? = nil,
+                dateProvider: @escaping () -> Date = { .now }) {
+        self.syncEngine = syncEngine
+        self.households = HouseholdRepository(context: context,
+                                              syncEngine: syncEngine,
+                                              dateProvider: dateProvider)
+        self.kids = KidRepository(context: context, syncEngine: syncEngine)
+        self.chores = ChoreRepository(context: context, syncEngine: syncEngine)
+        self.rewards = RewardRepository(context: context, syncEngine: syncEngine)
         self.events = EventRepository(context: context)
     }
 }

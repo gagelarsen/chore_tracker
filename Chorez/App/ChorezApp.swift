@@ -21,60 +21,63 @@ struct ChorezApp: App {
     private let container: ModelContainer
     private let appEnvironment: AppEnvironment
 
+    private let syncCoordinator: CKSyncEngineCoordinator?
+    private let syncReceiver: SyncReceiver?
+
     init() {
         // UI tests launch with `-UITesting` so each run starts against
-        // an in-memory store. Production launches try CloudKit first
-        // (so signed real-device builds get parent-pair sync) and fall
-        // back to a local-only store when CloudKit init fails — that
-        // path matters in two real environments:
-        //
-        //   1. CI / `make build` with `CODE_SIGNING_ALLOWED=NO`: the
-        //      app is unsigned, the entitlement is stripped, CloudKit
-        //      refuses to initialise. We still want the app to launch
-        //      so the UI smoke test passes.
-        //   2. Devices with no iCloud account signed in: CloudKit
-        //      init can still succeed (it queues until iCloud is
-        //      reachable) but if the SDK ever changes that we don't
-        //      want the app to crash.
+        // an in-memory store. Production launches use a vanilla
+        // SwiftData store on disk and hand CloudKit duties to
+        // `CKSyncEngineCoordinator` (Phase 1.5 — see
+        // `docs/plans/phase-1-5-sync.md`). The previous PR3
+        // `ModelConfiguration(cloudKitDatabase: ...)` SwiftData CK
+        // binding is gone: SwiftData's auto-managed zone can't be
+        // shared, so we now route every CloudKit write through our
+        // own engine into the shareable `ChorezSharedZone`.
         let inMemory = ProcessInfo.processInfo.arguments.contains("-UITesting")
         let schema = Schema(ChorezSchema.allModels)
         self.container = Self.makeContainer(schema: schema, inMemory: inMemory)
-        self.appEnvironment = AppEnvironment(context: container.mainContext)
+
+        // Sync engine is real on signed real-device builds only.
+        // Simulator / `-UITesting` paths skip it — entitlements don't
+        // apply in those modes, so attempting CloudKit init would
+        // crash async when the SDK first tries to authenticate.
+        let coordinator: CKSyncEngineCoordinator?
+        let receiver: SyncReceiver?
+        #if targetEnvironment(simulator)
+        coordinator = nil
+        receiver = nil
+        #else
+        if inMemory {
+            coordinator = nil
+            receiver = nil
+        } else {
+            let live = CKSyncEngineCoordinator(
+                containerIdentifier: "iCloud.com.glarsen.chorez"
+            )
+            coordinator = live
+            receiver = SyncReceiver(context: container.mainContext, syncEngine: live)
+        }
+        #endif
+        self.syncCoordinator = coordinator
+        self.syncReceiver = receiver
+
+        self.appEnvironment = AppEnvironment(context: container.mainContext,
+                                             syncEngine: coordinator)
     }
 
     private static func makeContainer(schema: Schema, inMemory: Bool) -> ModelContainer {
-        if inMemory {
-            return forceContainer(
-                schema: schema,
-                configuration: ModelConfiguration(isStoredInMemoryOnly: true)
-            )
-        }
-        // `ModelConfiguration(cloudKitDatabase: ...)` returns
-        // synchronously even when CloudKit will fail later — the
-        // entitlement check happens the first time CoreData+CloudKit
-        // tries to ping the container, well after init. Wrapping the
-        // init in `try?` doesn't catch that. The reliable
-        // discriminator is the target environment: simulators don't
-        // get entitlements applied under `CODE_SIGNING_ALLOWED=NO`
-        // (the path `make build` and CI both use). Real-device
-        // signed builds always get them, so this `#if` cleanly maps
-        // to "CloudKit usable here?".
-        #if targetEnvironment(simulator)
-        let configuration = ModelConfiguration()
-        #else
-        let configuration = ModelConfiguration(
-            cloudKitDatabase: .private("iCloud.com.glarsen.chorez")
-        )
-        #endif
-        return forceContainer(schema: schema, configuration: configuration)
-    }
-
-    private static func forceContainer(schema: Schema,
-                                       configuration: ModelConfiguration) -> ModelContainer {
+        // Vanilla SwiftData configurations only — CloudKit auto-sync
+        // is intentionally absent (Phase 1.5 hands replication to
+        // `CKSyncEngineCoordinator`). In-memory for tests, on-disk
+        // for everything else.
+        let configuration = inMemory
+            ? ModelConfiguration(isStoredInMemoryOnly: true)
+            : ModelConfiguration()
         do {
             return try ModelContainer(for: schema, configurations: [configuration])
         } catch {
-            // Local-only store init failing means the device is broken
+            // ModelContainer init failing means the device is broken
             // (no disk, no memory). Nothing useful to fall back to;
             // crash loudly so the failure surfaces in dev/CI.
             fatalError("Failed to create ModelContainer: \(error)")
@@ -85,9 +88,20 @@ struct ChorezApp: App {
         WindowGroup {
             RootView()
                 .task {
-                    // PR1's auto-fill hook stays at the app level so it
-                    // runs once per launch, before any screen renders.
-                    // No-op until a household + active templates exist.
+                    // Run the per-launch boot sequence once per scene:
+                    // (1) start the sync engine so inbound subscriptions
+                    //     and the outbound queue come online, (2) hook
+                    //     the inbound stream into SwiftData via
+                    //     `SyncReceiver`, (3) run PR1's auto-fill hook
+                    //     so today's chores exist. The order matters:
+                    //     start before receiver so the receiver only
+                    //     sees events from a live engine; auto-fill
+                    //     last so it sees inbound rows that may have
+                    //     arrived during sync.
+                    if let syncCoordinator {
+                        try? await syncCoordinator.start()
+                    }
+                    syncReceiver?.start()
                     try? appEnvironment.chores.autoFillTodayIfNeeded(now: .now)
                 }
         }
@@ -119,7 +133,15 @@ final class ChorezAppDelegate: NSObject, UIApplicationDelegate {
                 metadata,
                 cloudKitContainerIdentifier: Self.cloudKitContainerIdentifier
             )
-            if case .failure(let error) = result {
+            switch result {
+            case .success:
+                // Persist that this device is now a participant so
+                // `CKSyncEngineCoordinator.persistedRole()` returns
+                // `.participant` on the next start (next launch).
+                // Sync engages on relaunch — UX is documented in the
+                // Settings footer.
+                CKSyncEngineCoordinator.markAsParticipant()
+            case .failure(let error):
                 // No surface to alert from at this stage of launch.
                 // The spouse will see an "empty household" if accept
                 // fails silently — annoying but recoverable by tapping

@@ -20,19 +20,22 @@ import os
 @available(iOS 17.5, *)
 @MainActor
 public final class CKSyncEngineCoordinator: SharedZoneSyncEngine {
-    /// Single shared zone for every record the household syncs. Must
-    /// match `CloudKitShareCoordinator.Coordinator.sharedZoneName` so
-    /// the share-root record and the data records live in the same
-    /// zone (a `CKShare` covers exactly one zone).
-    ///
-    /// `nonisolated` so a non-actor-isolated protocol witness can use
-    /// it without forcing every caller onto the main actor.
-    public nonisolated static let sharedZoneName = "ChorezSharedZone"
+    /// Proxy to `SharedZone.name`. Exposed as the protocol witness so
+    /// callers that hold a `SharedZoneSyncEngine` reference can read
+    /// the zone name without importing the `SharedZone` namespace.
+    public nonisolated static let sharedZoneName = SharedZone.name
 
-    /// `CKRecordZoneSubscription` identifier. Constant so a re-launch
-    /// re-uses the existing server-side subscription rather than
-    /// piling up duplicates.
-    private static let zoneSubscriptionID = "chorez.shared-zone-subscription"
+    /// `UserDefaults` key persisted by `acceptShareInvitation(_:)` so
+    /// subsequent launches know to point the coordinator at the
+    /// shared (participant) database. Cleared on `.accountChange`.
+    public static let participantDefaultsKey = "chorez.cksyncengine.isParticipant"
+
+    /// Persisted owner record name from the first shared-zone fetch,
+    /// stored so outbound writes carry the right `zoneID.ownerName`
+    /// in participant mode. `CKCurrentUserDefaultName` is the right
+    /// answer in owner mode (and as a fallback when we haven't yet
+    /// observed any shared records).
+    internal static let participantOwnerKeyPrefix = "chorez.cksyncengine.ownerRecordName."
 
     /// Per-batch cap. CloudKit's documented batch ceiling is 400
     /// records; staying well under it keeps round-trips snappy and
@@ -50,7 +53,18 @@ public final class CKSyncEngineCoordinator: SharedZoneSyncEngine {
     /// deferring the container until the caller actually starts the
     /// engine, plain `init()` stays safe for unit-test fixtures that
     /// never call `start()`.
-    private let containerIdentifier: String
+    internal let containerIdentifier: String
+
+    /// Role the coordinator runs in. Determines whether
+    /// `CKSyncEngine` reads from the private or shared CloudKit
+    /// database. Persisted by `acceptShareInvitation(_:)` so a
+    /// relaunch keeps the right role automatically.
+    internal let role: CKSyncEngineRole
+
+    /// Cached `ownerName` for the shared zone. `nil` until the first
+    /// inbound record arrives (participant mode) — owner mode always
+    /// uses `CKCurrentUserDefaultName`.
+    internal var sharedZoneOwnerName: String?
 
     /// Lazily-built CloudKit container. Populated on first `start()`.
     private var container: CKContainer?
@@ -93,7 +107,7 @@ public final class CKSyncEngineCoordinator: SharedZoneSyncEngine {
     /// notoriously hard to reproduce after the fact, so we leave
     /// breadcrumbs at every lifecycle event without bloating signpost
     /// budget the way `print` would.
-    private let log: Logger
+    internal let log: Logger
 
     /// Build a coordinator for the given CloudKit container. The
     /// CloudKit container itself is materialised lazily in `start()`
@@ -101,9 +115,21 @@ public final class CKSyncEngineCoordinator: SharedZoneSyncEngine {
     /// environments where the iCloud entitlement isn't present (CI
     /// simulator builds with `CODE_SIGNING_ALLOWED=NO`, unit tests
     /// that never call `start()`).
-    public init(containerIdentifier: String) {
+    ///
+    /// `role` defaults to whatever the participant flag in
+    /// `UserDefaults` says — set by `acceptShareInvitation(_:)` after
+    /// the spouse joins. Override the parameter in tests to drive
+    /// either role deterministically.
+    public init(containerIdentifier: String,
+                role: CKSyncEngineRole = CKSyncEngineCoordinator.persistedRole()) {
         self.containerIdentifier = containerIdentifier
+        self.role = role
         self.log = Logger(subsystem: "com.glarsen.chorez", category: "CKSyncEngine")
+        // Load any persisted owner record name so the first batch
+        // can already point participant-side writes at the right
+        // zone without waiting for an inbound record.
+        let ownerKey = Self.participantOwnerKeyPrefix + containerIdentifier
+        self.sharedZoneOwnerName = UserDefaults.standard.string(forKey: ownerKey)
     }
 
     /// Spin up the engine, register the zone subscription, ensure the
@@ -117,24 +143,29 @@ public final class CKSyncEngineCoordinator: SharedZoneSyncEngine {
         let liveContainer = CKContainer(identifier: containerIdentifier)
         container = liveContainer
 
+        let database: CKDatabase = role == .owner
+            ? liveContainer.privateCloudDatabase
+            : liveContainer.sharedCloudDatabase
+
         let configuration = CKSyncEngine.Configuration(
-            database: liveContainer.privateCloudDatabase,
+            database: database,
             stateSerialization: loadState(),
             delegate: self
         )
         let newEngine = CKSyncEngine(configuration)
         engine = newEngine
 
-        // Zone create is registered through the engine so its
-        // database-change tracking knows about it. `PendingDatabaseChange`
-        // only supports `.saveZone` / `.deleteZone` — subscriptions are
-        // not part of the enum, so they go through the underlying
-        // database below.
-        let zoneID = CKRecordZone.ID(zoneName: Self.sharedZoneName,
-                                     ownerName: CKCurrentUserDefaultName)
-        newEngine.state.add(pendingDatabaseChanges: [
-            .saveZone(CKRecordZone(zoneID: zoneID))
-        ])
+        if role == .owner {
+            // Owner mints the zone. Participants must not — the zone
+            // is owned by the inviter and the participant's database
+            // doesn't accept `saveZone` on a zone the user doesn't
+            // own. CKSyncEngine handles "the zone already exists"
+            // silently for the owner case.
+            let zoneID = sharedZoneIDForCurrentRole()
+            newEngine.state.add(pendingDatabaseChanges: [
+                .saveZone(CKRecordZone(zoneID: zoneID))
+            ])
+        }
 
         // Re-register any queue items that callers `enqueue`d before
         // `start()` ran. Without this, the engine wouldn't know it
@@ -148,20 +179,22 @@ public final class CKSyncEngineCoordinator: SharedZoneSyncEngine {
             newEngine.state.add(pendingRecordZoneChanges: preStartPending)
         }
 
-        // Register the zone subscription directly on the private
-        // database. CloudKit dedupes by `subscriptionID`, so re-saving
-        // the same subscription is a no-op on the server side. We
-        // swallow the "already exists" path explicitly because the
-        // CloudKit SDK still throws a `.serverRejectedRequest` rather
-        // than treating it as success.
-        try await ensureZoneSubscription(zoneID: zoneID)
+        if role == .owner {
+            // Subscription registration is for the owner side only;
+            // CloudKit auto-subscribes participants to their shared
+            // zones, so a duplicate subscription on the participant
+            // side would error.
+            try await ensureZoneSubscription(zoneID: sharedZoneIDForCurrentRole())
+        }
 
         // Kick off the first round-trip so the zone + subscription
         // land server-side before the integration layer starts
         // queueing real data.
         try await newEngine.sendChanges()
         try await newEngine.fetchChanges()
-        log.info("CKSyncEngine started for container \(self.containerIdentifier, privacy: .public)")
+        let identifier = self.containerIdentifier
+        let roleName = String(describing: self.role)
+        log.info("CKSyncEngine started container=\(identifier, privacy: .public) role=\(roleName, privacy: .public)")
     }
 
     /// Idempotent zone-subscription save. We do this through the
@@ -174,7 +207,7 @@ public final class CKSyncEngineCoordinator: SharedZoneSyncEngine {
         guard let container else { return }
         let subscription = CKRecordZoneSubscription(
             zoneID: zoneID,
-            subscriptionID: Self.zoneSubscriptionID
+            subscriptionID: SharedZone.subscriptionID
         )
         let notificationInfo = CKSubscription.NotificationInfo()
         // Silent push: no alert, no badge, no sound. CloudKit just
@@ -258,9 +291,8 @@ public final class CKSyncEngineCoordinator: SharedZoneSyncEngine {
     /// future migration that re-uses an id) is locally visible
     /// instead of silently overwriting.
     internal func recordID(for id: UUID, recordType: String) -> CKRecord.ID {
-        let zoneID = CKRecordZone.ID(zoneName: Self.sharedZoneName,
-                                     ownerName: CKCurrentUserDefaultName)
-        return CKRecord.ID(recordName: "\(recordType)-\(id.uuidString)", zoneID: zoneID)
+        return CKRecord.ID(recordName: "\(recordType)-\(id.uuidString)",
+                           zoneID: sharedZoneIDForCurrentRole())
     }
 
     /// Snapshot of the pending dictionaries for the engine's next
@@ -320,46 +352,11 @@ public final class CKSyncEngineCoordinator: SharedZoneSyncEngine {
         broadcast(change)
     }
 
-    /// `UserDefaults` key for the persisted CKSyncEngine state blob.
-    /// Namespaced by container id so a switch between staging /
-    /// production containers doesn't cross-contaminate state.
-    private var stateKey: String {
-        "chorez.cksyncengine.state.\(containerIdentifier)"
-    }
-
-    /// Load the engine's previously persisted state. Falls back to
-    /// `nil` on decode failure so a corrupted blob doesn't wedge the
-    /// app — the engine treats nil as "fresh install" and re-fetches
-    /// the world.
-    private func loadState() -> CKSyncEngine.State.Serialization? {
-        guard let data = UserDefaults.standard.data(forKey: stateKey) else { return nil }
-        do {
-            let decoder = JSONDecoder()
-            return try decoder.decode(CKSyncEngine.State.Serialization.self, from: data)
-        } catch {
-            log.error("Failed to decode CKSyncEngine state: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-    }
-
-    /// Persist the engine's latest state. Encoded as JSON so it's
-    /// inspectable in `defaults read` during debugging; the blob is
-    /// small (a few KB) so the choice has no perf cost.
-    internal func saveState(_ state: CKSyncEngine.State.Serialization) {
-        do {
-            let encoder = JSONEncoder()
-            let data = try encoder.encode(state)
-            UserDefaults.standard.set(data, forKey: stateKey)
-        } catch {
-            log.error("Failed to encode CKSyncEngine state: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
-    /// Wipe persisted state. Called on `.accountChange` so a
-    /// sign-out / sign-in cycle starts from a clean slate rather
-    /// than re-applying the previous account's tokens.
-    internal func resetState() {
-        UserDefaults.standard.removeObject(forKey: stateKey)
+    /// Drop everything still in the outbound queue. Called from
+    /// `resetState()` when CloudKit signals an `.accountChange` —
+    /// the queued items belong to the signed-out account and can't
+    /// be flushed against the new one anyway.
+    internal func clearPendingChanges() {
         pendingUpserts.removeAll()
         pendingDeletes.removeAll()
     }

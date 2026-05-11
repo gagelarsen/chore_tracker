@@ -25,9 +25,11 @@ extension CKSyncEngineCoordinator: CKSyncEngineDelegate {
             resetState()
         case .fetchedRecordZoneChanges(let fetched):
             for modification in fetched.modifications {
+                captureOwnerName(from: modification.record.recordID)
                 broadcast(.upsertedRecord(modification.record))
             }
             for deletion in fetched.deletions {
+                captureOwnerName(from: deletion.recordID)
                 broadcast(.deletedRecord(
                     recordID: deletion.recordID,
                     recordType: deletion.recordType
