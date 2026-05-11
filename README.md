@@ -11,9 +11,33 @@ scaffold — the chore-tracking features are still to come.
   `project.yml`.
 - **SwiftLint** (`brew install swiftlint`) — required by `make lint` and CI.
 
+### For CloudKit / real-device builds only
+
+- A paid **Apple Developer Program** membership (free Apple IDs cannot use
+  CloudKit). Find your 10-character team ID at
+  https://developer.apple.com/account → Membership.
+- A local `.chorez-team.local` file in the repo root (gitignored) with one
+  line:
+
+  ```sh
+  CHOREZ_TEAM_ID=YOUR10CHRID
+  ```
+
+  `make project` reads this and substitutes the team ID into the generated
+  Xcode project's `DEVELOPMENT_TEAM` setting and CloudKit entitlement. The
+  file is git-ignored so the ID never leaves your machine. CI builds with
+  `CODE_SIGNING_ALLOWED=NO`, so missing the file does not break the CI
+  pipeline; it only matters for signed builds (real devices and TestFlight).
+- The CloudKit container `iCloud.com.glarsen.chorez` auto-provisions on
+  first signed build with the entitlement. Inspect or pre-configure it at
+  https://icloud.developer.apple.com/dashboard.
+
 ## Getting started
 
 ```sh
+# 0. (CloudKit only) Drop your team ID into a local file
+echo 'CHOREZ_TEAM_ID=YOUR10CHRID' > .chorez-team.local
+
 # 1. Generate the Xcode project
 make project
 

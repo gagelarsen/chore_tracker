@@ -1,3 +1,4 @@
+import CloudKit
 import SwiftData
 import SwiftUI
 
@@ -18,16 +19,17 @@ struct SettingsView: View {
     @State private var draftHouseholdName: String = ""
     @State private var showEndDayConfirmation = false
     @State private var alertMessage: String?
+    @State private var showShareSheet = false
 
     var body: some View {
         Form {
             if let household = households.first {
                 familySection(for: household)
                 endDaySection
-                syncPlaceholderSection
+                syncSection(household: household)
             } else {
                 bootstrapSection
-                syncPlaceholderSection
+                bootstrapSyncPlaceholderSection
             }
         }
         .navigationTitle("Settings")
@@ -75,6 +77,20 @@ struct SettingsView: View {
         }
     }
 
+    /// Pre-bootstrap variant — there's no Household yet, so the
+    /// invite button has nothing to share. Keeps the section visible
+    /// (so users see the feature exists) but disabled until setup.
+    private var bootstrapSyncPlaceholderSection: some View {
+        Section {
+            Label("Invite spouse", systemImage: "person.crop.circle.badge.plus")
+                .foregroundStyle(.secondary)
+        } header: {
+            Text("Sync")
+        } footer: {
+            Text("Create your family first to unlock the invite flow.")
+        }
+    }
+
     private var endDaySection: some View {
         Section("End of day") {
             Button(role: .destructive) {
@@ -86,16 +102,42 @@ struct SettingsView: View {
         }
     }
 
-    private var syncPlaceholderSection: some View {
+    @ViewBuilder
+    private func syncSection(household: Household) -> some View {
         Section {
-            Label("Invite spouse", systemImage: "person.crop.circle.badge.plus")
-                .foregroundStyle(.secondary)
+            Button {
+                showShareSheet = true
+            } label: {
+                Label("Invite spouse", systemImage: "person.crop.circle.badge.plus")
+            }
+            .accessibilityIdentifier("inviteSpouseButton")
         } header: {
             Text("Sync")
         } footer: {
-            Text("Pairing both parents' phones lands in PR3.")
+            // Honest framing of the iOS 17.5 SwiftData + CKShare gap:
+            // the invite flow works, but the manual data-replication
+            // layer needed to surface owner-side data on the spouse's
+            // device is a known follow-up. Phase 1 ships plumbing.
+            Text("""
+                The invite flow is wired up. Two-account data sync \
+                will land in a follow-up update — for now, each \
+                device shows its own local data.
+                """)
+        }
+        .sheet(isPresented: $showShareSheet) {
+            CloudKitShareSheet(
+                household: household,
+                cloudKitContainerIdentifier: cloudKitContainerIdentifier,
+                onComplete: handleShareCompletion
+            )
+            .ignoresSafeArea()
         }
     }
+
+    /// Hard-coded for Phase 1 PR3; matches the value in `ChorezApp` and
+    /// the entitlement. PR3 follow-ups (or a Phase 5 polish pass) can
+    /// promote this to a shared constant if a third call site appears.
+    private let cloudKitContainerIdentifier = "iCloud.com.glarsen.chorez"
 
     // MARK: - Actions
 
@@ -131,6 +173,24 @@ struct SettingsView: View {
             alertMessage = "Set up your family first."
         } catch {
             alertMessage = "Could not end the day: \(error.localizedDescription)"
+        }
+    }
+
+    /// Routes share-sheet outcomes back to the screen.
+    /// Cancellation is a non-event; everything else surfaces in the
+    /// shared alert presenter so the user gets the same UX as the
+    /// other Settings flows.
+    private func handleShareCompletion(_ result: Result<CKShare, Error>) {
+        showShareSheet = false
+        switch result {
+        case .success:
+            // The share controller already informed the user via its
+            // own UI; nothing to add here.
+            break
+        case .failure(let error as CloudKitShareError) where error == .cancelledByUser:
+            break
+        case .failure(let error):
+            alertMessage = "Could not share: \(error.localizedDescription)"
         }
     }
 }

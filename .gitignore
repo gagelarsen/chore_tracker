@@ -32,3 +32,12 @@ xcuserdata/
 # Conductor workspace context (already gitignored at workspace root, listed here
 # so contributors using the repo outside Conductor get the same behavior)
 .context/
+
+# Local-only signing info — Apple Developer team ID for CloudKit
+# entitlement substitution. Each contributor creates their own copy.
+# See README for setup.
+.chorez-team.local
+
+# Sub-agent worktrees — temporary parallel clones for delegated work.
+# Never committed; lint/test exclusions in .swiftlint.yml + project.yml.
+.claude/

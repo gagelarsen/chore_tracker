@@ -9,10 +9,15 @@ import SwiftData
 /// safe values so the schema is CloudKit-ready when that lands.
 @Model
 public final class Household {
-    public var id: UUID
-    public var name: String
+    // Property-level defaults satisfy SwiftData's CloudKit requirement
+    // that every non-optional column be defaulted or optional — without
+    // them the container init can fail at runtime even though the
+    // schema compiles. Init signatures further down keep their own
+    // defaults for ergonomic Swift call sites.
+    public var id: UUID = UUID()
+    public var name: String = ""
     public var ownerCloudUserID: String?
-    public var createdAt: Date
+    public var createdAt: Date = Date()
     /// `startOfDay` of the most recent run of `autoFillTodayIfNeeded`.
     /// Keeps auto-fill idempotent across same-day app launches.
     public var lastAutoFillDate: Date?

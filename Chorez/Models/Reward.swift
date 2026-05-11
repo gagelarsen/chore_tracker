@@ -4,11 +4,12 @@ import SwiftData
 /// Persistent redeemable reward defined by parents.
 @Model
 public final class Reward {
-    public var id: UUID
-    public var householdID: UUID
-    public var name: String
-    public var points: Int
-    public var active: Bool
+    // Property-level defaults — see Household.swift for the rationale.
+    public var id: UUID = UUID()
+    public var householdID: UUID = UUID()
+    public var name: String = ""
+    public var points: Int = 0
+    public var active: Bool = true
 
     public init(id: UUID = UUID(),
                 householdID: UUID,

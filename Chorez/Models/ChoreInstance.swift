@@ -9,14 +9,15 @@ import SwiftData
 /// queries like "today's instances" stay simple and timezone-stable.
 @Model
 public final class ChoreInstance {
-    public var id: UUID
+    // Property-level defaults — see Household.swift for the rationale.
+    public var id: UUID = UUID()
     public var templateID: UUID?
-    public var householdID: UUID
-    public var name: String
-    public var points: Int
-    public var assignedKidID: UUID
-    public var date: Date
-    public var statusRaw: String
+    public var householdID: UUID = UUID()
+    public var name: String = ""
+    public var points: Int = 0
+    public var assignedKidID: UUID = UUID()
+    public var date: Date = Date()
+    public var statusRaw: String = ChoreStatus.pending.rawValue
     public var completedAt: Date?
 
     public var status: ChoreStatus {
