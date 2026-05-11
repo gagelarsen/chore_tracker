@@ -10,17 +10,21 @@ public final class Reward {
     public var name: String = ""
     public var points: Int = 0
     public var active: Bool = true
+    /// LWW arbiter for CloudKit sync — see `Household.updatedAt`.
+    public var updatedAt: Date = Date()
 
     public init(id: UUID = UUID(),
                 householdID: UUID,
                 name: String = "",
                 points: Int = 0,
-                active: Bool = true) {
+                active: Bool = true,
+                updatedAt: Date = .now) {
         self.id = id
         self.householdID = householdID
         self.name = name
         self.points = points
         self.active = active
+        self.updatedAt = updatedAt
     }
 
     public convenience init(snapshot: RewardSnapshot) {
@@ -28,7 +32,8 @@ public final class Reward {
                   householdID: snapshot.householdID,
                   name: snapshot.name,
                   points: snapshot.points,
-                  active: snapshot.active)
+                  active: snapshot.active,
+                  updatedAt: snapshot.updatedAt)
     }
 
     public var snapshot: RewardSnapshot {
@@ -36,6 +41,7 @@ public final class Reward {
                        householdID: householdID,
                        name: name,
                        points: points,
-                       active: active)
+                       active: active,
+                       updatedAt: updatedAt)
     }
 }
