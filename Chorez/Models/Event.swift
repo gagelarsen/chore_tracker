@@ -17,6 +17,11 @@ public final class Event {
     public var typeRaw: String = ""
     public var payloadData: Data = Data()
     public var occurredAt: Date = Date()
+    /// LWW arbiter for CloudKit sync — see `Household.updatedAt`. Events
+    /// are append-only so this is set once at insert and never changes,
+    /// but the field still exists so the sync engine handles every record
+    /// uniformly.
+    public var updatedAt: Date = Date()
 
     /// Stable encoder/decoder for `EventPayload`.
     ///
@@ -33,7 +38,8 @@ public final class Event {
     public init(id: UUID = UUID(),
                 kidID: UUID? = nil,
                 payload: EventPayload,
-                occurredAt: Date = .now) {
+                occurredAt: Date = .now,
+                updatedAt: Date = .now) {
         self.id = id
         self.kidID = kidID
         self.typeRaw = payload.type.rawValue
@@ -44,13 +50,15 @@ public final class Event {
         // swiftlint:disable:next force_try
         self.payloadData = try! Self.encoder.encode(payload)
         self.occurredAt = occurredAt
+        self.updatedAt = updatedAt
     }
 
     public convenience init(snapshot: EventSnapshot) {
         self.init(id: snapshot.id,
                   kidID: snapshot.kidID,
                   payload: snapshot.payload,
-                  occurredAt: snapshot.occurredAt)
+                  occurredAt: snapshot.occurredAt,
+                  updatedAt: snapshot.updatedAt)
     }
 
     /// Decoded payload. Returns `nil` only if the stored bytes are
@@ -65,6 +73,10 @@ public final class Event {
     /// always round-trip).
     public var snapshot: EventSnapshot? {
         guard let payload else { return nil }
-        return EventSnapshot(id: id, kidID: kidID, payload: payload, occurredAt: occurredAt)
+        return EventSnapshot(id: id,
+                             kidID: kidID,
+                             payload: payload,
+                             occurredAt: occurredAt,
+                             updatedAt: updatedAt)
     }
 }

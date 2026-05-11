@@ -21,17 +21,24 @@ public final class Household {
     /// `startOfDay` of the most recent run of `autoFillTodayIfNeeded`.
     /// Keeps auto-fill idempotent across same-day app launches.
     public var lastAutoFillDate: Date?
+    /// LWW (last-writer-wins) arbiter for CloudKit sync. Every mutation
+    /// path that changes a persisted field also stamps this with `.now`
+    /// so the shared-zone sync engine can resolve concurrent edits by
+    /// keeping the higher timestamp. See `Chorez/Sync/SyncProtocols.swift`.
+    public var updatedAt: Date = Date()
 
     public init(id: UUID = UUID(),
                 name: String = "",
                 ownerCloudUserID: String? = nil,
                 createdAt: Date = .now,
-                lastAutoFillDate: Date? = nil) {
+                lastAutoFillDate: Date? = nil,
+                updatedAt: Date = .now) {
         self.id = id
         self.name = name
         self.ownerCloudUserID = ownerCloudUserID
         self.createdAt = createdAt
         self.lastAutoFillDate = lastAutoFillDate
+        self.updatedAt = updatedAt
     }
 
     public convenience init(snapshot: HouseholdSnapshot) {
@@ -39,7 +46,8 @@ public final class Household {
                   name: snapshot.name,
                   ownerCloudUserID: snapshot.ownerCloudUserID,
                   createdAt: snapshot.createdAt,
-                  lastAutoFillDate: snapshot.lastAutoFillDate)
+                  lastAutoFillDate: snapshot.lastAutoFillDate,
+                  updatedAt: snapshot.updatedAt)
     }
 
     public var snapshot: HouseholdSnapshot {
@@ -47,6 +55,7 @@ public final class Household {
                           name: name,
                           ownerCloudUserID: ownerCloudUserID,
                           createdAt: createdAt,
-                          lastAutoFillDate: lastAutoFillDate)
+                          lastAutoFillDate: lastAutoFillDate,
+                          updatedAt: updatedAt)
     }
 }

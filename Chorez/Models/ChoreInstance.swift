@@ -19,6 +19,8 @@ public final class ChoreInstance {
     public var date: Date = Date()
     public var statusRaw: String = ChoreStatus.pending.rawValue
     public var completedAt: Date?
+    /// LWW arbiter for CloudKit sync — see `Household.updatedAt`.
+    public var updatedAt: Date = Date()
 
     public var status: ChoreStatus {
         get { ChoreStatus(rawValue: statusRaw) ?? .pending }
@@ -33,7 +35,8 @@ public final class ChoreInstance {
                 assignedKidID: UUID,
                 date: Date,
                 status: ChoreStatus = .pending,
-                completedAt: Date? = nil) {
+                completedAt: Date? = nil,
+                updatedAt: Date = .now) {
         self.id = id
         self.templateID = templateID
         self.householdID = householdID
@@ -43,6 +46,7 @@ public final class ChoreInstance {
         self.date = date
         self.statusRaw = status.rawValue
         self.completedAt = completedAt
+        self.updatedAt = updatedAt
     }
 
     public convenience init(snapshot: ChoreInstanceSnapshot) {
@@ -54,7 +58,8 @@ public final class ChoreInstance {
                   assignedKidID: snapshot.assignedKidID,
                   date: snapshot.date,
                   status: snapshot.status,
-                  completedAt: snapshot.completedAt)
+                  completedAt: snapshot.completedAt,
+                  updatedAt: snapshot.updatedAt)
     }
 
     public var snapshot: ChoreInstanceSnapshot {
@@ -66,6 +71,7 @@ public final class ChoreInstance {
                               assignedKidID: assignedKidID,
                               date: date,
                               status: status,
-                              completedAt: completedAt)
+                              completedAt: completedAt,
+                              updatedAt: updatedAt)
     }
 }

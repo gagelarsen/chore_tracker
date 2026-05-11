@@ -19,7 +19,9 @@ struct SettingsView: View {
     @State private var draftHouseholdName: String = ""
     @State private var showEndDayConfirmation = false
     @State private var alertMessage: String?
-    @State private var showShareSheet = false
+    /// Strong reference held while the share flow is running. Released
+    /// to nil in `handleShareCompletion` once the share sheet closes.
+    @State private var shareFlow: CloudKitShareCoordinator?
 
     var body: some View {
         Form {
@@ -106,11 +108,12 @@ struct SettingsView: View {
     private func syncSection(household: Household) -> some View {
         Section {
             Button {
-                showShareSheet = true
+                startShareFlow(for: household)
             } label: {
                 Label("Invite spouse", systemImage: "person.crop.circle.badge.plus")
             }
             .accessibilityIdentifier("inviteSpouseButton")
+            .disabled(shareFlow != nil)
         } header: {
             Text("Sync")
         } footer: {
@@ -124,14 +127,22 @@ struct SettingsView: View {
                 device shows its own local data.
                 """)
         }
-        .sheet(isPresented: $showShareSheet) {
-            CloudKitShareSheet(
-                household: household,
-                cloudKitContainerIdentifier: cloudKitContainerIdentifier,
-                onComplete: handleShareCompletion
-            )
-            .ignoresSafeArea()
+    }
+
+    private func startShareFlow(for household: Household) {
+        // Guard against rapid taps spawning concurrent shares — the
+        // `disabled(shareFlow != nil)` on the button covers the
+        // common case but a fast double-tap during the same frame can
+        // slip through.
+        guard shareFlow == nil else { return }
+        let flow = CloudKitShareCoordinator(
+            household: household,
+            cloudKitContainerIdentifier: cloudKitContainerIdentifier
+        ) { result in
+            handleShareCompletion(result)
         }
+        shareFlow = flow
+        flow.start()
     }
 
     /// Hard-coded for Phase 1 PR3; matches the value in `ChorezApp` and
@@ -181,15 +192,17 @@ struct SettingsView: View {
     /// shared alert presenter so the user gets the same UX as the
     /// other Settings flows.
     private func handleShareCompletion(_ result: Result<CKShare, Error>) {
-        showShareSheet = false
+        print("[ShareDebug] SettingsView handleShareCompletion result=\(result)")
+        shareFlow = nil
         switch result {
         case .success:
             // The share controller already informed the user via its
             // own UI; nothing to add here.
             break
         case .failure(let error as CloudKitShareError) where error == .cancelledByUser:
-            break
+            print("[ShareDebug] SettingsView treating .cancelledByUser as silent dismiss")
         case .failure(let error):
+            print("[ShareDebug] SettingsView showing alert for error: \(error)")
             alertMessage = "Could not share: \(error.localizedDescription)"
         }
     }

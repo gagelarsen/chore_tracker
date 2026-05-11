@@ -19,6 +19,8 @@ public final class ChoreTemplate {
     public var assignedKidID: UUID = UUID()
     public var recurrenceRaw: String = Recurrence.daily.rawValue
     public var active: Bool = true
+    /// LWW arbiter for CloudKit sync — see `Household.updatedAt`.
+    public var updatedAt: Date = Date()
 
     public var recurrence: Recurrence {
         get { Recurrence(rawValue: recurrenceRaw) ?? .daily }
@@ -31,7 +33,8 @@ public final class ChoreTemplate {
                 points: Int = 0,
                 assignedKidID: UUID,
                 recurrence: Recurrence = .daily,
-                active: Bool = true) {
+                active: Bool = true,
+                updatedAt: Date = .now) {
         self.id = id
         self.householdID = householdID
         self.name = name
@@ -39,6 +42,7 @@ public final class ChoreTemplate {
         self.assignedKidID = assignedKidID
         self.recurrenceRaw = recurrence.rawValue
         self.active = active
+        self.updatedAt = updatedAt
     }
 
     public convenience init(snapshot: ChoreTemplateSnapshot) {
@@ -48,7 +52,8 @@ public final class ChoreTemplate {
                   points: snapshot.points,
                   assignedKidID: snapshot.assignedKidID,
                   recurrence: snapshot.recurrence,
-                  active: snapshot.active)
+                  active: snapshot.active,
+                  updatedAt: snapshot.updatedAt)
     }
 
     public var snapshot: ChoreTemplateSnapshot {
@@ -58,6 +63,7 @@ public final class ChoreTemplate {
                               points: points,
                               assignedKidID: assignedKidID,
                               recurrence: recurrence,
-                              active: active)
+                              active: active,
+                              updatedAt: updatedAt)
     }
 }

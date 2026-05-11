@@ -14,17 +14,23 @@ public struct HouseholdSnapshot: Identifiable, Hashable, Sendable {
     public var ownerCloudUserID: String?
     public var createdAt: Date
     public var lastAutoFillDate: Date?
+    /// LWW arbiter for the CloudKit sync engine. See
+    /// `Chorez/Sync/SyncProtocols.swift`. Defaults to `.now` so a freshly
+    /// minted snapshot is always sync-ready.
+    public var updatedAt: Date
 
     public init(id: UUID,
                 name: String,
                 ownerCloudUserID: String? = nil,
                 createdAt: Date,
-                lastAutoFillDate: Date? = nil) {
+                lastAutoFillDate: Date? = nil,
+                updatedAt: Date = .now) {
         self.id = id
         self.name = name
         self.ownerCloudUserID = ownerCloudUserID
         self.createdAt = createdAt
         self.lastAutoFillDate = lastAutoFillDate
+        self.updatedAt = updatedAt
     }
 }
 
@@ -40,17 +46,21 @@ public struct KidSnapshot: Identifiable, Hashable, Sendable {
     public var name: String
     public var displayOrder: Int
     public var currentDailyBalance: Int
+    /// LWW arbiter for the CloudKit sync engine — see `HouseholdSnapshot.updatedAt`.
+    public var updatedAt: Date
 
     public init(id: UUID,
                 householdID: UUID,
                 name: String,
                 displayOrder: Int,
-                currentDailyBalance: Int) {
+                currentDailyBalance: Int,
+                updatedAt: Date = .now) {
         self.id = id
         self.householdID = householdID
         self.name = name
         self.displayOrder = displayOrder
         self.currentDailyBalance = currentDailyBalance
+        self.updatedAt = updatedAt
     }
 }
 
@@ -72,6 +82,8 @@ public struct ChoreTemplateSnapshot: Identifiable, Hashable, Sendable {
     public var assignedKidID: UUID
     public var recurrence: Recurrence
     public var active: Bool
+    /// LWW arbiter for the CloudKit sync engine — see `HouseholdSnapshot.updatedAt`.
+    public var updatedAt: Date
 
     public init(id: UUID,
                 householdID: UUID,
@@ -79,7 +91,8 @@ public struct ChoreTemplateSnapshot: Identifiable, Hashable, Sendable {
                 points: Int,
                 assignedKidID: UUID,
                 recurrence: Recurrence = .daily,
-                active: Bool = true) {
+                active: Bool = true,
+                updatedAt: Date = .now) {
         self.id = id
         self.householdID = householdID
         self.name = name
@@ -87,6 +100,7 @@ public struct ChoreTemplateSnapshot: Identifiable, Hashable, Sendable {
         self.assignedKidID = assignedKidID
         self.recurrence = recurrence
         self.active = active
+        self.updatedAt = updatedAt
     }
 }
 
@@ -110,6 +124,8 @@ public struct ChoreInstanceSnapshot: Identifiable, Hashable, Sendable {
     public var date: Date
     public var status: ChoreStatus
     public var completedAt: Date?
+    /// LWW arbiter for the CloudKit sync engine — see `HouseholdSnapshot.updatedAt`.
+    public var updatedAt: Date
 
     public init(id: UUID,
                 templateID: UUID?,
@@ -119,7 +135,8 @@ public struct ChoreInstanceSnapshot: Identifiable, Hashable, Sendable {
                 assignedKidID: UUID,
                 date: Date,
                 status: ChoreStatus = .pending,
-                completedAt: Date? = nil) {
+                completedAt: Date? = nil,
+                updatedAt: Date = .now) {
         self.id = id
         self.templateID = templateID
         self.householdID = householdID
@@ -129,6 +146,7 @@ public struct ChoreInstanceSnapshot: Identifiable, Hashable, Sendable {
         self.date = date
         self.status = status
         self.completedAt = completedAt
+        self.updatedAt = updatedAt
     }
 }
 
@@ -139,17 +157,21 @@ public struct RewardSnapshot: Identifiable, Hashable, Sendable {
     public var name: String
     public var points: Int
     public var active: Bool
+    /// LWW arbiter for the CloudKit sync engine — see `HouseholdSnapshot.updatedAt`.
+    public var updatedAt: Date
 
     public init(id: UUID,
                 householdID: UUID,
                 name: String,
                 points: Int,
-                active: Bool = true) {
+                active: Bool = true,
+                updatedAt: Date = .now) {
         self.id = id
         self.householdID = householdID
         self.name = name
         self.points = points
         self.active = active
+        self.updatedAt = updatedAt
     }
 }
 
@@ -163,17 +185,22 @@ public struct RewardRedemptionSnapshot: Identifiable, Hashable, Sendable {
     public var rewardID: UUID
     public var points: Int
     public var redeemedAt: Date
+    /// LWW arbiter for the CloudKit sync engine — see `HouseholdSnapshot.updatedAt`.
+    /// Append-only rows never re-stamp this field after insert.
+    public var updatedAt: Date
 
     public init(id: UUID,
                 kidID: UUID,
                 rewardID: UUID,
                 points: Int,
-                redeemedAt: Date) {
+                redeemedAt: Date,
+                updatedAt: Date = .now) {
         self.id = id
         self.kidID = kidID
         self.rewardID = rewardID
         self.points = points
         self.redeemedAt = redeemedAt
+        self.updatedAt = updatedAt
     }
 }
 
@@ -183,17 +210,22 @@ public struct EventSnapshot: Identifiable, Hashable, Sendable {
     public var kidID: UUID?
     public var payload: EventPayload
     public var occurredAt: Date
+    /// LWW arbiter for the CloudKit sync engine — see `HouseholdSnapshot.updatedAt`.
+    /// Append-only rows never re-stamp this field after insert.
+    public var updatedAt: Date
 
     public var type: EventType { payload.type }
 
     public init(id: UUID,
                 kidID: UUID?,
                 payload: EventPayload,
-                occurredAt: Date) {
+                occurredAt: Date,
+                updatedAt: Date = .now) {
         self.id = id
         self.kidID = kidID
         self.payload = payload
         self.occurredAt = occurredAt
+        self.updatedAt = updatedAt
     }
 }
 

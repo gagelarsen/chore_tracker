@@ -14,17 +14,24 @@ public final class RewardRedemption {
     public var rewardID: UUID = UUID()
     public var points: Int = 0
     public var redeemedAt: Date = Date()
+    /// LWW arbiter for CloudKit sync — see `Household.updatedAt`. For
+    /// append-only rows this is set once at insert and never changed,
+    /// but the field still exists so the sync engine treats every record
+    /// uniformly.
+    public var updatedAt: Date = Date()
 
     public init(id: UUID = UUID(),
                 kidID: UUID,
                 rewardID: UUID,
                 points: Int = 0,
-                redeemedAt: Date = .now) {
+                redeemedAt: Date = .now,
+                updatedAt: Date = .now) {
         self.id = id
         self.kidID = kidID
         self.rewardID = rewardID
         self.points = points
         self.redeemedAt = redeemedAt
+        self.updatedAt = updatedAt
     }
 
     public convenience init(snapshot: RewardRedemptionSnapshot) {
@@ -32,7 +39,8 @@ public final class RewardRedemption {
                   kidID: snapshot.kidID,
                   rewardID: snapshot.rewardID,
                   points: snapshot.points,
-                  redeemedAt: snapshot.redeemedAt)
+                  redeemedAt: snapshot.redeemedAt,
+                  updatedAt: snapshot.updatedAt)
     }
 
     public var snapshot: RewardRedemptionSnapshot {
@@ -40,6 +48,7 @@ public final class RewardRedemption {
                                  kidID: kidID,
                                  rewardID: rewardID,
                                  points: points,
-                                 redeemedAt: redeemedAt)
+                                 redeemedAt: redeemedAt,
+                                 updatedAt: updatedAt)
     }
 }

@@ -35,8 +35,6 @@ targets:
           - iCloud.com.glarsen.chorez
         com.apple.developer.icloud-services:
           - CloudKit
-        com.apple.developer.ubiquity-container-identifiers:
-          - iCloud.com.glarsen.chorez
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.glarsen.chorez

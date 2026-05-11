@@ -37,7 +37,8 @@ public enum RulesEngine {
     /// caller maps that to its own error case.
     private static func creditBalance(_ state: HouseholdState,
                                       kidID: UUID,
-                                      points: Int) -> HouseholdState? {
+                                      points: Int,
+                                      at now: Date) -> HouseholdState? {
         guard let kidIdx = state.kids.firstIndex(where: { $0.id == kidID }) else {
             return nil
         }
@@ -45,6 +46,10 @@ public enum RulesEngine {
         guard newBalance >= 0 else { return nil }
         var newState = state
         newState.kids[kidIdx].currentDailyBalance = newBalance
+        // Stamp `updatedAt` here so every balance mutation (regardless of
+        // which public engine func called us) becomes visible to the
+        // CloudKit sync engine's LWW resolver.
+        newState.kids[kidIdx].updatedAt = now
         return newState
     }
 
@@ -73,18 +78,23 @@ public enum RulesEngine {
         }
         guard let credited = creditBalance(state,
                                            kidID: instance.assignedKidID,
-                                           points: instance.points) else {
+                                           points: instance.points,
+                                           at: now) else {
             return .failure(.kidNotFound)
         }
 
         var newState = credited
         newState.instances[instanceIdx].status = .done
         newState.instances[instanceIdx].completedAt = now
+        // The instance just changed state — stamp it so sync sees the
+        // transition.
+        newState.instances[instanceIdx].updatedAt = now
         newState.events.append(EventSnapshot(
             id: UUID(),
             kidID: instance.assignedKidID,
             payload: .choreCompleted(instanceID: instance.id, points: instance.points),
-            occurredAt: now
+            occurredAt: now,
+            updatedAt: now
         ))
         return .success(newState)
     }
@@ -109,7 +119,7 @@ public enum RulesEngine {
         guard state.kids.contains(where: { $0.id == kidID }) else {
             return .failure(.kidNotFound)
         }
-        guard let credited = creditBalance(state, kidID: kidID, points: points) else {
+        guard let credited = creditBalance(state, kidID: kidID, points: points, at: now) else {
             return .failure(.wouldGoNegative)
         }
 
@@ -118,7 +128,8 @@ public enum RulesEngine {
             id: UUID(),
             kidID: kidID,
             payload: .awardGiven(points: points),
-            occurredAt: now
+            occurredAt: now,
+            updatedAt: now
         ))
         return .success(newState)
     }
@@ -151,7 +162,7 @@ public enum RulesEngine {
         // — keeping the balance mutation routed through a single site.
         // A `nil` result here means the kid did not have enough; the
         // kid-not-found case has already been handled above.
-        guard let debited = creditBalance(state, kidID: kidID, points: -reward.points) else {
+        guard let debited = creditBalance(state, kidID: kidID, points: -reward.points, at: now) else {
             return .failure(.insufficientBalance)
         }
 
@@ -162,7 +173,8 @@ public enum RulesEngine {
             kidID: kidID,
             rewardID: rewardID,
             points: reward.points,
-            redeemedAt: now
+            redeemedAt: now,
+            updatedAt: now
         ))
         newState.events.append(EventSnapshot(
             id: UUID(),
@@ -170,7 +182,8 @@ public enum RulesEngine {
             payload: .rewardRedeemed(rewardID: rewardID,
                                      redemptionID: redemptionID,
                                      points: reward.points),
-            occurredAt: now
+            occurredAt: now,
+            updatedAt: now
         ))
         return .success(newState)
     }
@@ -205,11 +218,17 @@ public enum RulesEngine {
                 id: UUID(),
                 kidID: newState.kids[idx].id,
                 payload: .dayClosed(previousBalance: previous),
-                occurredAt: now
+                occurredAt: now,
+                updatedAt: now
             ))
             // The single legitimate balance write outside `creditBalance`.
             // See the file-level doc for why this is carved out.
             newState.kids[idx].currentDailyBalance = 0
+            // Stamp the kid alongside the zero-out so the sync engine
+            // sees the change. `creditBalance` does this for the normal
+            // mutation path; closeOutDay is the carved-out exception so
+            // it has to stamp manually.
+            newState.kids[idx].updatedAt = now
         }
 
         newState.instances.removeAll { instance in
